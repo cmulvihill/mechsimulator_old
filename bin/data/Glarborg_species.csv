@@ -1,0 +1,6 @@
+name,smiles,'inchi','mult','charge','sens'
+NH3,N,,,,
+H2,[H][H],,,,
+O2,O=O,,,,
+N2,N#N,,,,
+NO,[N]=O,,,,
