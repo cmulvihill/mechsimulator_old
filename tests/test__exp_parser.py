@@ -56,6 +56,9 @@ def test_st_conc():
     filename = 'sample_st_conc_v1.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
+    filename = 'Mulvihill_2021_N2O.xlsx'
+    filepath = os.path.join(DAT_PATH, filename)
+    _ = exp.load_exp_set(filepath)
 
 
 def test_st_abs():
@@ -64,16 +67,17 @@ def test_st_abs():
     filename = 'sample_st_abs_v1.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
-    # print(_)
+    print(_)
 
 
 def test_st_idt():
     """ Tests the reading of an Excel file for a st_idt experiment
     """
     filename = 'sample_st_idt_v1.xlsx'
+    filename = 'Mathieu_2015_phi05_99_1atm.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
-    # print(_['exp_objs'][0]['result'])
+    print(_)
 
 
 def test_pfr():
@@ -113,16 +117,15 @@ def test_mdot_jsr():
     filename = 'Tran_JSR_mdot.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
-    print(_)
 
 
 if __name__ == '__main__':
     test_convert_units()
-    test_st_conc()
-    test_st_abs()
+    # test_st_conc()
+    # test_st_abs()
     test_st_idt()
     test_pfr()
     test_jsr()
-    test_const_t_p_abs()
+    # test_const_t_p_abs()
     test_rcm_idt()
     test_mdot_jsr()

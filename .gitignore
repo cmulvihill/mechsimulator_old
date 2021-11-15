@@ -133,3 +133,6 @@ dmypy.json
 
 # Annoying Excel backup files
 ~$*.xlsx
+
+# PDFs
+*.pdf

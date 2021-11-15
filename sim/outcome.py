@@ -1,61 +1,23 @@
-import copy
 import matplotlib.pyplot as plt
 import numpy as np
 from mechsimulator.sim import util
 from mechsimulator.sim import reactors
-from mechsimulator.parser.exp import ALLOWED_IDT_METHODS
 
 
-def get_result(conds_dct, gas, reac_type, meas_type):
-
-    raw_spcs, raw_pressures, raw_temps, uniform_times = get_raw_result(
-        conds_dct, gas, reac_type)
-    mech_result, uniform_times = process_raw_result(
-        raw_spcs, raw_pressures, raw_temps, uniform_times, meas_type, conds_dct)
-
-    return mech_result, uniform_times
-
-
-def get_raw_result(conds_dct, gas, reac_type):
+def get_result(conds_dct, gas, reac_type, meas_type, xdata, ydata_shape):
 
     if reac_type == 'jsr':
-        raw_mech_result = jsr(conds_dct, gas)
-        uniform_times = None
+        mech_ydata = jsr(conds_dct, gas, meas_type, ydata_shape)
     elif reac_type == 'st':
-        raw_spcs, raw_pressures, raw_temps, uniform_times = st(conds_dct, gas)
+        mech_ydata = st(conds_dct, gas, meas_type, xdata, ydata_shape)
     else:
         raise NotImplementedError
-    # elif reac_type == 'pfr':
-    #     pass
-        # Need to change all of this!!
-        # temps, pres, mix, mdot, area, length = conds_dct
-        # target_spcs = sim_util.get_target_spcs(exp_set, rename_instr)
-        # raw_mech_result = np.ndarray((len(temps), len(target_spcs)))
-        # for temp_idx, temp in enumerate(temps):
-        #     sim_result, _, _ = reactors.pfr(  # don't need times or positions
-        #         temp, pres, mix, gas, target_spcs, mdot, area, length)
-        #     # Get last entry for all species, which is the outlet concentration
-        #     raw_mech_result[temp_idx, :] = sim_result[-1, :]
 
-    return raw_spcs, raw_pressures, raw_temps, uniform_times
+    return mech_ydata
 
 
-def process_raw_result(raw_spcs, raw_pressures, raw_temps, uniform_times,
-                       meas_type, conds_dct):
+def jsr(conds_dct, gas, meas_type, ydata_shape):
 
-    if meas_type == 'conc':
-        mech_result = raw_spcs  # no processing needs to occur
-        uniform_times = uniform_times
-    elif meas_type == 'idt':
-        pass
-    else:
-        raise NotImplementedError(f'The meas_type {meas_type} is not working.')
-
-    return mech_result, uniform_times
-
-
-def jsr(conds_dct, gas):
-    
     # Get arrays of reactor inputs
     temps = conds_dct['temp']
     pressures = conds_dct['pressure']
@@ -65,30 +27,28 @@ def jsr(conds_dct, gas):
     mdots = conds_dct['mdot']  # either res_time or mdot will be used
     target_spcs = conds_dct['target_spcs']
 
-    # Initialize variables
-    num_conds = conds_dct['num_conds']
-    num_targets = len(target_spcs)
-    raw_mech_result = np.ndarray((num_conds, num_targets))
-    prev_concs = mixes[0]  # for first iter, use mix as prev_concs
-
     # Loop over the conditions, performing a simulation for each
-    for cond_idx in range(num_conds):
-        # mix = extract_mix_info(mixes[cond_idx])  # get rid of tuple
+    mech_ydata = np.ndarray(ydata_shape)
+    for cond_idx in range(ydata_shape[0]):  # [0] gives # of conditions
         temp = temps[cond_idx]
         pressure = pressures[cond_idx]
         mix = mixes[cond_idx]
         res_time = res_times[cond_idx]
         vol = vols[cond_idx]
         mdot = mdots[cond_idx]
-        cond_result, prev_concs, _ = reactors.jsr(
+        if cond_idx == 0:
+            prev_concs = mixes[0]  # for first iter, use mix as prev_concs
+        # Run the simulation
+        raw_concs, prev_concs, _, _ = reactors.jsr(
             temp, pressure, mix, gas, target_spcs, res_time, vol, mdot=mdot,
             prev_concs=prev_concs)
-        raw_mech_result[cond_idx, :] = cond_result
+        # Process the raw result; for now, this is nothing
+        mech_ydata[cond_idx, :] = raw_concs
 
-    return raw_mech_result
+    return mech_ydata
     
 
-def st(conds_dct, gas):
+def st(conds_dct, gas, meas_type, xdata, ydata_shape):
     """ Gets the raw results from a shock tube simulation
 
         :param conds_dct:
@@ -105,36 +65,65 @@ def st(conds_dct, gas):
     end_times = conds_dct['end_time']
     target_spcs = conds_dct['target_spcs']
     p_of_ts = conds_dct['p_of_t']
-    uniform_times = conds_dct['times']  # note: not used as a reactor input
 
-    # Initialize variables
-    num_conds = conds_dct['num_conds']
-    num_spcs = len(target_spcs)  # note: this is num_spcs, not num_targets
-    num_times = len(uniform_times)
-    raw_spcs = np.ndarray((num_conds, num_spcs, num_times))
-    # Note: below, the num_spcs dimension is missing since only one P and one T
-    raw_pressures = np.ndarray((num_conds, num_times))
-    raw_temps = np.ndarray((num_conds, num_times))
-
-    # Perform a simulation for each condition
-    for cond_idx in range(num_conds):
+    # Loop over all conditions
+    mech_ydata = np.ndarray(ydata_shape)
+    for cond_idx in range(ydata_shape[0]):  # [0] gives # of conditions
         temp = temps[cond_idx]
         pressure = pressures[cond_idx]
         mix = mixes[cond_idx]
         end_time = end_times[cond_idx]
         p_of_t = p_of_ts[cond_idx]
-        cond_spcs, cond_pressures, cond_temps, cond_times, _, _ = reactors.st(
+        # Perform a simulation
+        raw_concs, raw_pressures, raw_temps, raw_times, _, _ = reactors.st(
             temp, pressure, mix, gas, target_spcs, end_time, p_of_t=p_of_t)
+        # Process the raw results
+        mech_ydata[cond_idx] = process_st(
+            raw_concs, raw_pressures, raw_temps, raw_times, conds_dct, cond_idx,
+            meas_type, xdata)
 
-        # Interpolate simulation results to fit them to the uniform time grid
-        raw_spcs[cond_idx, :, :] = util.interp(
-                cond_spcs, cond_times, uniform_times)
-        raw_pressures[cond_idx, :] = util.interp(
-            cond_pressures, cond_times, uniform_times)
-        raw_temps[cond_idx, :] = util.interp(
-            cond_temps, cond_times, uniform_times)
+    return mech_ydata
 
-    return raw_spcs, raw_pressures, raw_temps, uniform_times
+
+def process_st(raw_concs, raw_pressures, raw_temps, raw_times, conds_dct,
+               cond_idx, meas_type, uniform_times):
+    """ Processes the outcome for a single condition of a shock tube simulation
+
+        :param raw_concs:
+        :param raw_pressures:
+        :param raw_temps:
+        :param raw_times:
+        :param conds_dct:
+        :param cond_idx: index of the current condition; used for things that
+            are cond. dependent (e.g., absorption coefficient)
+        :type cond_idx:
+        :return:
+    """
+
+    if meas_type == 'conc':
+        # Simply interpolate the raw concentrations to fit the uniform times
+        cond_ydata = util.interp(raw_concs, raw_times, uniform_times)
+
+    elif meas_type == 'idt':
+        # Load information from conds_dct
+        idt_targets = conds_dct['idt_target']
+        idt_methods = conds_dct['idt_method']
+        target_spcs = conds_dct['target_spcs']
+        # Loop over each target/method pair and get the IDT data
+        cond_ydata = np.ndarray((len(idt_targets,)))
+        for target_idx, idt_target in enumerate(idt_targets):
+            idt_method = idt_methods[target_idx]
+            if idt_target == 'pressure':
+                target_profile = raw_pressures
+            else:  # if a species
+                spc_idx = target_spcs.index(idt_target)  # idx of spc in targets
+                target_profile = raw_concs[spc_idx]  # conc. of target spc
+            idt, warnings = st_idt(target_profile, raw_times, method=idt_method)
+            cond_ydata[target_idx] = idt
+    else:
+        pass
+
+    return cond_ydata
 
 
 # Functions for getting IDT
@@ -176,7 +165,7 @@ def _get_rcm_idt(pressures, times):
     return idt, warning
 
 
-def _get_st_idt(target, times, method='baseline_extrap', plot=False):
+def st_idt(target, times, method='baseline_extrap', plot=False):
     """ Gets the ignition delay time for a shock-tube simulation. Can determine
         IDT using one of three methods.
 
@@ -196,8 +185,6 @@ def _get_st_idt(target, times, method='baseline_extrap', plot=False):
         :rtype: list of strs
     """
 
-    assert method in ALLOWED_IDT_METHODS, (
-        f"IDT method should be one of {ALLOWED_IDT_METHODS}, not '{method}'")
     warnings = []
 
     # Get first derivative (note: np.gradient uses central differences)
@@ -252,5 +239,8 @@ def _get_st_idt(target, times, method='baseline_extrap', plot=False):
             peak_value = max(target)
             plt.plot(idt, peak_value, 'ro')
         plt.show()
+
+    if warnings:
+        idt = np.nan
 
     return idt, warnings

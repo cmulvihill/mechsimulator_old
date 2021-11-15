@@ -47,6 +47,9 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
         return vel
 
     pressure = pressure * 101325  # atm to Pa
+    print(temp)
+    print(pressure)
+    print(mix)
     gas.TPX = temp, pressure, mix
 
     if p_of_t is None:
@@ -83,16 +86,20 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
     pressures = states.P
     temps = states.T
     target_concs = np.zeros((len(target_spcs), len(times)))
+    print('inside reactors.py, target spcs:\n', target_spcs)
     for idx, target_spc in enumerate(target_spcs):
-        target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+        if target_spc is not None:
+            target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+        else:
+            target_concs[idx, :] = np.nan
     end_gas = gas
     
     if run_rop: 
-        pass
+        rop = None
     else:
         rop = []
 
-    return target_concs, pressures, temps, times, end_gas, rop
+    return target_concs, pressures, temps, times, rop, end_gas
 
 
 def rcm(temp, pressure, mix, gas, target_spcs, end_time, v_of_t):
@@ -306,7 +313,6 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
         mfc = ct.MassFlowController(upstream=inlet, downstream=reac, mdot=mdot)
     else:  # if both res_time and mdot are None
         raise NotImplementedError('Either mdot or res_time must be given.')
-    # print('res_time calc:\n', reac.mass/mdot)
 
     # Create reactor network (only the JSR in this case) and advance it to SS
     reac_net = ct.ReactorNet([reac])
@@ -335,8 +341,9 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
             else:  # if the target_spc isn't in the mechanism
                 target_concs[idx] = None
     end_gas = gas
+    rop = None
 
-    return target_concs, all_concs, end_gas
+    return target_concs, all_concs, rop, end_gas
 
 
 def const_t_p(temp, pressure, mix, gas, target_spcs, end_time):

@@ -4,7 +4,22 @@ import cantera as ct
 from mechsimulator import parser
 from math import floor
 from math import ceil
+from mechsimulator.parser.exp import ALLOWED_UNITS
 
+
+MEAS_TYPE_DIMS = {
+    'ion':          4,
+    'abs':          3,
+    'emis':         3,
+    'pressure':     3,
+    'temp':         3,
+    'burner_conc':  3,
+    'burner_temp':  3,
+    'conc':         3,
+    'idt':          2,
+    'outlet':       2,
+    'lfs':          2,
+}
 TIME_RESOLVED_MEAS_TYPES = (
     'abs',
     'emis',
@@ -129,9 +144,6 @@ def check_time_resolved(exp_set):
     return is_time_resolved
 
 
-
-
-
 def load_solution_objs(mech_filenames):
     """ Receives a list of Cantera .cti mechanism filenames and returns a list
         of Cantera Solution objects
@@ -173,20 +185,13 @@ def get_plot_conds(exp_set):
     return plot_conds
 
 
-def get_uniform_times(exp_set, plot_or_exps='exps'):
-    """ Gets a uniform times array for all conditions in an exp_set based on
-        whether doing plots or exps
+def get_uniform_times(exp_set):
+    """ Gets a uniform times array for an exp_set based on the plot instructions
 
     """
 
-    # Get the time limits
-    if plot_or_exps == 'exps':
-        min_time, max_time = get_exp_xlims(exp_set)
-    else:
-        max_time = exp_set['plot']['end_time']
-        min_time = 0
-
-    # Get the times array
+    max_time = exp_set['plot']['end_time']
+    min_time = 0
     timestep = exp_set['plot']['timestep']
     num_times = int((max_time - min_time) / timestep) + 1
     times = np.linspace(min_time, max_time, num_times)
@@ -243,41 +248,108 @@ def interp(ydata, xdata, desired_xdata):
     return interp_ydata
 
 
-def get_mech_result_shape(exp_set, plot_or_exps):
+def get_mech_info(exp_set, calc_type, x_source, conds_source, gases):
     """ Gets the shape of the Numpy array that will describe a single mechanism
-        simulation of an exp_set
+        simulation of an exp_set. Works for three different calculation types:
+        (1) outcome, (2) sensitivity, or (3) rate of production
 
     """
 
-    # Get the number of conditions, which depends on whether doing plot or exps
-    if plot_or_exps == 'plot':
-        num_conds = len(get_plot_conds(exp_set))
-    else:
-        num_conds = exp_set['overall']['num_exps']
+    def get_times(exp_set, x_source):
 
-    # Get the other dimension(s) and define the shape
+        if x_source == 'plot':
+            num_times = get_uniform_times(exp_set)
+        else:
+            num_times = exp_set['overall']['xdata']
+
+        return num_times
+
+    def get_cond_titles(conds, units):
+
+        cond_titles = []
+        for cond in conds:
+            cond_title = f'{cond} {units}'
+            cond_titles.append(cond_title)
+
+        return cond_titles
+
+    def get_idt_targets_titles(exp_set):
+        fake_targets = exp_set['plot']['idt_target']
+        methods = exp_set['plot']['idt_method']
+        targets = []
+        titles = []
+        for idx, fake_target in enumerate(fake_targets):
+            targets.append((fake_target, methods[idx]))
+            titles.append(fake_target + ',' + methods[idx])
+
+        return targets, titles
+
+    # Get the set variable and check that options were used correctly
+    plot_var = get_plot_variable(exp_set)
+    units = ALLOWED_UNITS[plot_var][0][0]
+    if x_source == 'exps' and conds_source == 'plot':
+        raise NotImplementedError(
+            "x_source='exps' and conds_source='plot' is not allowed")
+
+    # Get the conditions depending on the source
+    if conds_source == 'plot':
+        conds = get_plot_conds(exp_set)
+        cond_titles = get_cond_titles(conds, units)
+    else:  # 'exps'
+        conds = np.arange(1, exp_set['overall']['num_exps'] + 1, 1)  # 1 to N
+        cond_titles = [str(cond) for cond in conds]  # maybe totally useless
+
+    # Get the targets (and possibly another variable)
+    # Note: targets doesn't depend on the x_source
     meas_type = exp_set['overall']['meas_type']
     if meas_type in ('abs', 'emis'):
-        num_wvlens = parser.exp.get_num_wvlens(exp_set)
-        num_times = len(get_uniform_times(exp_set, plot_or_exps))
-        shape = (num_conds, num_wvlens, num_times)
+        targets = exp_set['plot']['wavelength']
+        times = get_times(exp_set, x_source)
+        shape = (len(conds), len(targets), len(times))
+        x_arrays = (conds, targets, times)
+        x_titles = (cond_titles, targets, None)
+        xdata = times
     elif meas_type == 'conc':
-        num_spcs = len(exp_set['spc'])
-        num_times = len(get_uniform_times(exp_set, plot_or_exps))
-        shape = (num_conds, num_spcs, num_times)
+        targets = list(exp_set['spc'].keys())
+        times = get_times(exp_set, x_source)
+        shape = (len(conds), len(targets), len(times))
+        x_arrays = (conds, targets, times)
+        x_titles = (cond_titles, targets, None)
+        xdata = times
     elif meas_type == 'pressure':
-        num_times = len(get_uniform_times(exp_set, plot_or_exps))
-        shape = (num_conds, num_times)
+        targets = ['Pressure']
+        times = get_times(exp_set, x_source)
+        shape = (len(conds), len(targets), len(times))
+        x_arrays = (conds, targets, times)
+        x_titles = (cond_titles, targets, None)
+        xdata = times
     elif meas_type == 'idt':
-        num_idts = parser.exp.get_num_idts(exp_set)
-        shape = (num_conds, num_idts)
+        targets, target_titles = get_idt_targets_titles(exp_set)
+        shape = (len(conds), len(targets))
+        x_arrays = (conds, targets)
+        x_titles = (cond_titles, targets)
+        xdata = conds
     elif meas_type == 'outlet':
-        num_spcs = len(exp_set['spc'])
-        shape = (num_conds, num_spcs)
+        targets = list(exp_set['spc'].keys())
+        shape = (len(conds), len(targets))
+        x_arrays = (conds, targets)
+        x_titles = (cond_titles, targets)
+        xdata = conds
     else:  # meas_type == 'ion':
         raise NotImplementedError("'ion' is not implemented yet")
 
-    return shape
+    # If the calculation type is sensitivity or rate of production, add some 
+    # information about the reactions
+    if calc_type in ('sens', 'rop'):
+        # Get the maximum number of reactions among all the mechanisms
+        max_num_rxns = 0
+        for gas in gases:
+            if len(gas.n_reactions) > max_num_rxns:
+                max_num_rxns = gas.n_reactions         
+        shape = (max_num_rxns,) + shape  # prepend
+        # Need to update to add reaction names to x_arrays and titles
+        
+    return shape, x_arrays, x_titles, xdata
 
 
 def get_exp_xlims(exp_set):

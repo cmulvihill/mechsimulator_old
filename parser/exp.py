@@ -4,13 +4,15 @@ Parses Excel files containing experimental data to obtain exp_set dictionaries
 
 import pandas as pd
 import numpy as np
+from mechsimulator.parser import exp_checker
 from mechsimulator.parser import util
 from mechsimulator.parser import rdkit_
 
 # Allowed physical quantities (keys) and:
 # (1) corresponding allowed units
-# (2) conversions factors to get to the desired units
+# (2) conversions factors to get to the internal units
 # (3) full name and desired units of the quantity (for printing purposes)
+# Note: the first units given for each quantity are the internal units
 ALLOWED_UNITS = {
     'temp':         (('K', 'C', 'F', 'R'),
                      (1, None, None, 5.55555e-1),
@@ -55,69 +57,6 @@ ALTERNATE_NAMES = {
     'idt':          'time',
     'timestep':     'time',
 }
-
-# Allowed groups (keys) and their required params (values) in the 'info' sheet
-ALLOWED_INFO_GROUPS = {
-    'overall':      ('set_id', 'source', 'description', 'reac_type',
-                     'meas_type', 'num_exps', 'version'),
-    'plot':         (),  # in some cases, none are required, so leaving blank
-    'mix':          (),
-    'spc':          (),
-    'exp_objs':     (),
-    'ignore_row':   (),
-}
-
-# Allowed reactor types (keys) and:
-# (1) required inputs in the 'conds' field of the exp_sheets and the 'plot'
-#       field of the 'info' sheet
-# (2) optional inputs in the 'conds' field of the exp_sheets and the 'plot'
-#       field of the 'info' sheet
-# In the required inputs, a tuple indicates that only one of those values is
-# required (e.g., either 'res_time' or 'mdot' is required for a JSR).
-ALLOWED_REAC_TYPES = {
-    'st':           (('temp', 'pressure', 'end_time'),
-                     ('dpdt',)),
-    'pfr':          (('temp', 'pressure', 'length', 'mdot', 'area'),
-                     ()),
-    'jsr':          (('temp', 'pressure', ('res_time', 'mdot'), 'vol'),
-                     ()),
-    'rcm':          (('temp', 'pressure', 'end_time', 'time', 'vol'),
-                     ()),
-    'const_t_p':    (('temp', 'pressure', 'end_time'),
-                     ())
-}
-
-# Allowed measurement types (keys) and:
-# (1) required inputs in the 'plot' field of the 'info' sheet,
-# (2) required inputs in the 'conds' field of the exp_sheet, and
-# (3) optional inputs.
-ALLOWED_MEAS_TYPES = {
-    'abs':          (('variable', 'timestep', 'wavelength'),
-                     ('abs_coeff', 'path_length'),
-                     ()),
-    'emis':         (('variable', 'timestep', 'wavelength'),
-                     (),
-                     ()),
-    'idt':          (('variable', 'start', 'end', 'inc', 'idt_target',
-                      'idt_method', 'end_time'),
-                     (),
-                     ()),
-    'outlet':       (('variable', 'start', 'end', 'inc'),
-                     (),
-                     ()),
-    'ion':          (('variable', 'timestep',),
-                     (),
-                     ()),
-    'pressure':     (('variable', 'timestep',),
-                     (),
-                     ()),
-    'conc':         (('variable', 'timestep',),
-                     (),
-                     ()),
-}
-
-# Allowed 'idt_method' options for determining ignition delay time
-ALLOWED_IDT_METHODS = ('baseline_extrap', 'max_slope', 'max_value')
 
 # Number of columns in the experimental sheets
 NUM_EXP_CLMS = 7
@@ -177,9 +116,17 @@ def load_exp_set(exp_filename):
     exp_set['exp_objs'] = exp_objs
 
     # Run some checks
-    chk_exp_set(exp_set)
+    exp_checker.chk_exp_set(exp_set)
     for exp_obj in exp_objs:  # important to check exp_objs AFTER exp_set
-        chk_exp_obj(exp_obj, exp_set)
+        exp_checker.chk_exp_obj(exp_obj, exp_set)
+
+    # Create the exp_data and xdata arrays
+    exp_ydata, exp_xdata = get_exp_data(exp_set)
+    exp_set['overall']['exp_ydata'] = exp_ydata
+    exp_set['overall']['exp_xdata'] = exp_xdata
+
+    # print(exp_ydata)
+    # print(exp_xdata)
 
     return exp_set
 
@@ -194,14 +141,14 @@ def read_info_sheet(df):
     """
 
     assert df.shape[1] >= 4, f'"info" sheets must have at least 4 columns'
-    exp_set = {'overall': {}, 'plot': {}, 'mix': {}, 'spc': {},
-               'exp_objs': []}
+    exp_set = {'overall': {}, 'plot': {}, 'plot_format': {}, 'mix': {},
+               'spc': {}, 'exp_objs': []}
     for _, row in df.iterrows():
         assert len(row) >= 4, f'The row {list(row)} has less than 4 entries'
         group, param, raw_val, units = row[0], row[1], row[2], row[3]
-        assert group in ALLOWED_INFO_GROUPS.keys(), (
+        assert group in exp_checker.ALLOWED_INFO_GROUPS, (
             f"The group '{group}' is not allowed in the info sheet. Options "
-            f"are: {tuple(ALLOWED_INFO_GROUPS.keys())}")
+            f"are: {exp_checker.ALLOWED_INFO_GROUPS}")
         # Perform different actions based on the group
         if group == 'overall':
             exp_set[group][param] = raw_val  # no conversions required
@@ -231,6 +178,25 @@ def read_info_sheet(df):
             elif param in ('idt_target', 'idt_method', 'wavelength'):
                 conv_val = [conv_val]
             exp_set[group][param] = conv_val  # note: don't use fake_param
+        elif group == 'plot_format':
+            if raw_val in ('xlim', 'ylim'):
+                conv_val = []
+                for entry in raw_val.split(','):
+                    conv_val.append(float(entry))
+            elif raw_val == 'omit_targets':
+                conv_val = []
+                for entry in raw_val.split(','):
+                    conv_val.append(entry)
+            elif raw_val in ('ignore_exps', 'plot_points'):
+                if raw_val == 'yes':
+                    conv_val = True
+                elif raw_val == 'no':
+                    conv_val = False
+                else:
+                    conv_val = raw_val
+            else:
+                conv_val = raw_val
+            exp_set[group][param] = conv_val
         elif group == 'ignore_row':
             pass
 
@@ -438,326 +404,108 @@ def convert_units(val, quant, units):
     return conv_val
 
 
-# Functions for checking correctness of the created objects
-def chk_exp_set(exp_set):
-    """ Runs checks on an exp_set to make sure certain conditions are met. This
-        function operates mostly on the 'info' sheet
+def get_exp_data(exp_set):
 
-        :param: exp_set: description of a set of experiments
-        :type exp_set: dct
-    """
+    def get_unique_times(exp_set):
 
-    set_id = exp_set['overall']['set_id']  # for printing
-    reac_type = exp_set['overall']['reac_type']
-    meas_type = exp_set['overall']['meas_type']
+        all_times = []
+        exp_objs = exp_set['exp_objs']
+        for exp_obj in exp_objs:
+            all_times.extend(exp_obj['result']['time'][0])
+        unique_times = sorted(list(set(all_times)))
 
-    # Check that the groups have the required input params
-    for group, params in exp_set.items():
-        for reqd_inp in ALLOWED_INFO_GROUPS[group]:
-            assert reqd_inp in params, (
-                f"For set ID {set_id}, the param '{reqd_inp}' is missing from"
-                f" the group '{group}'")
+        return unique_times
 
-    # Check that the reactor type is allowed
-    assert reac_type in ALLOWED_REAC_TYPES.keys(), (
-        f"In set ID {set_id}, the reac_type '{reac_type}' is not allowed. "
-        f"Options are: {tuple(ALLOWED_REAC_TYPES.keys())}")
+    def interp_single_array(sing_ydata, exp_xdata, unique_xdata):
+        """
 
-    # Check that the measurement type is allowed
-    assert meas_type in ALLOWED_MEAS_TYPES.keys(), (
-        f"In set ID {set_id}, the meas_type '{meas_type}' is not allowed. "
-        f"Options are: {tuple(ALLOWED_MEAS_TYPES.keys())}")
+        :param sing_ydata:
+        :param exp_xdata:
+        :param unique_xdata:
+        :return:
+        """
 
-    # Check that the number of exp_objects matches the number indicated in the
-    # info sheet
-    num_exps = exp_set['overall']['num_exps']
-    num_exp_objs = len(exp_set['exp_objs'])
-    assert num_exps == num_exp_objs, (
-        f"In set ID {set_id}, the 'info' sheet indicates {num_exps}"
-        f" experiments, while there are {num_exp_objs} exp_objs.")
-
-    # Check that the required inputs exist in the plot field, both according to
-    # meas_type and reac_type
-    plot_info = exp_set['plot']
-    reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][0]
-    reqd_reac_inps = ALLOWED_REAC_TYPES[reac_type][0]
-    for reqd_meas_inp in reqd_meas_inps:
-        assert reqd_meas_inp in plot_info.keys(), (
-            f"In the 'plot' field of set ID {set_id}, the required input"
-            f" '{reqd_meas_inp}' is missing. This is required for the meas_type"
-            f" '{meas_type}'.")
-    # If the meas_type requires the full 'plot' inputs (as indicated by the
-    # 'inc' field), check for the proper inputs according to the reactor type
-    if 'inc' in reqd_meas_inps:
-        plot_var = plot_info['variable']
-        for reqd_reac_inp in reqd_reac_inps:
-            # If reqd_reac_inp is a string, i.e., a single value
-            if isinstance(reqd_reac_inp, str):
-                assert reqd_reac_inp in plot_info.keys() or reqd_reac_inp \
-                    in plot_var, (
-                    f"In the 'plot' field of set ID {set_id}, the required"
-                    f" input '{reqd_reac_inp}' is missing. This is required for"
-                    f" the reac_type '{reac_type}'.")
-            # If reqd_reac_inp is a tuple with multiple optional variables
+        interp_ydata = np.ndarray((len(unique_xdata)), dtype=float)
+        # Loop over every unique x point
+        for unique_idx, unique_xdatum in enumerate(unique_xdata):
+            # If the unique x point is in the exp x data, store matching y data
+            if unique_xdatum in exp_xdata:
+                exp_idx = np.where(exp_xdata == unique_xdatum)
+                interp_ydata[unique_idx] = sing_ydata[exp_idx]
+            # Otherwise, just store as NaN
             else:
-                satisfied = False
-                # Make sure  one and only one of the optional inputs was given
-                for opt_inp in reqd_reac_inp:
-                    if opt_inp in plot_info.keys():
-                        assert not satisfied, (
-                            f"For set ID {set_id}, only one of the optional"
-                            f" inputs, {reqd_reac_inp}, should be given.")
-                        satisfied = True
-                assert satisfied, (
-                    f"For set ID {set_id}, one of the optional inputs,"
-                    f" {reqd_reac_inp}, should be given.")
+                interp_ydata[unique_idx] = np.nan
 
-    # Check that only allowed plot instructions are given
-    poss_inps = get_poss_inps(reac_type, meas_type, 'plot', remove_bad=False)
-    for inp in plot_info.keys():
-        assert inp in poss_inps, (
-                f"For set ID {set_id}, the input '{inp}' is not permitted for"
-                f" the reactor type '{reac_type}' and the measurement type"
-                f" '{meas_type}. Options are {poss_inps}.")
+        return interp_ydata
 
-    # Check that the number of wavelengths indicated in the 'plot' field matches
-    # that given in the results of the exp_sheets
-    if meas_type in ('abs', 'emis'):
-        num_exp_wvlens = get_num_wvlens(exp_set)
-        num_set_wvlens = len(exp_set['plot']['wavelength'])
-        assert num_exp_wvlens == num_set_wvlens, (
-            f"For set ID {set_id}, there are {num_exp_wvlens} wavelengths "
-            f"indicated in the exp sheets, but {num_set_wvlens} indicated in"
-            f" the 'plot' field")
-
-    # Check some things regarding ignition delay time measurements
-    if meas_type == 'idt':
-        idt_targets = exp_set['plot']['idt_target']
-        idt_methods = exp_set['plot']['idt_method']
-        num_targets = len(idt_targets)
-        num_methods = len(idt_methods)
-        # Check that the number of targets and methods are the same
-        assert num_targets == num_methods, (
-            f"For set ID {set_id}, the number of IDT targets, {idt_targets}, "
-            f"and IDT methods, {idt_methods}, are different.")
-        # Check that the methods are allowed
-        for idt_method in idt_methods:
-            assert idt_method in ALLOWED_IDT_METHODS, (
-                f"For set ID {set_id}, the idt_method '{idt_method}' is not "
-                f"allowed. Options are: {ALLOWED_IDT_METHODS}")
-        # Check that the targets are allowed
-        all_spcs = tuple(exp_set['spc'].keys())
-        for idt_target in idt_targets:
-            if idt_target != 'pressure':
-                assert idt_target in all_spcs, (
-                    f"For set ID {set_id}, the idt_target '{idt_target}' is not"
-                    f" allowed. Options are either 'pressure' or any of the "
-                    f"defined species: {all_spcs}")
-        # Check that the number of IDTs indicated in the 'plot' field matches
-        # that given in the results of the exp_sheets
-        num_exp_idts = get_num_idts(exp_set)
-        num_set_idts = len(exp_set['plot']['idt_target'])
-        assert num_exp_idts == num_set_idts, (
-            f"For set ID {set_id}, there are {num_exp_idts} IDTs "
-            f"indicated in the exp sheets, but {num_set_idts} indicated in"
-            f" the 'plot' field")
-
-    # Check that the end_time and timestep are compatible
-    timestep = exp_set['plot'].get('timestep')
-    end_time = exp_set['plot'].get('end_time')
-    if timestep is not None and end_time is not None:
-        assert np.isclose(end_time % timestep, 0, atol=1e-8), (
-            f'For set ID {set_id}, the end_time, {end_time}, is not a multiple '
-            f'of the timestep, {timestep}.')
-
-
-def chk_exp_obj(exp_obj, exp_set):
-    """ Runs checks on an exp_obj to make sure certain conditions are met
-
-        :param exp_obj: description of a single experiment
-        :type: dct
-        :param: exp_set: description of a set of experiments
-        :type exp_set: dct
-    """
-
-    set_id = exp_set['overall']['set_id']  # for printing
-
-    # Check that the experiment ID is defined
-    assert exp_obj['overall'].get('exp_id') is not None, (
-        f"For set ID {set_id}, one exp_sheet is missing the 'exp_id' field")
-    exp_id = exp_obj['overall']['exp_id']  # for printing
-
-    # Check for all required inputs for the given reactor type
-    reac_type = exp_set['overall']['reac_type']
-    reqd_reac_inps = ALLOWED_REAC_TYPES[reac_type][0]
-    for reqd_reac_inp in reqd_reac_inps:
-        # If the required input is a single required value (e.g., 'temp')
-        if isinstance(reqd_reac_inp, str):
-            assert reqd_reac_inp in exp_obj['conds'].keys(), (
-                f"For set ID {set_id}, exp ID {exp_id}, the required input"
-                f" '{reqd_reac_inp}' is absent from the 'conds' field.")
-        # If the required input is a tuple, only one of which is required (e.g.,
-        # 'res_time' or 'mdot' for a JSR)
-        else:  # in this case, reqd_reac_inp is a tuple with multiple variables
-            satisfied = False
-            # Make sure that one and only one of the optional inputs was given
-            for opt_inp in reqd_reac_inp:
-                if opt_inp in exp_obj['conds'].keys():
-                    assert not satisfied, (
-                        f"For set ID {set_id}, exp ID {exp_id}, only one of the"
-                        f" optional inputs, {reqd_reac_inp}, should be given.")
-                    satisfied = True
-            assert satisfied, (
-                f"For set ID {set_id}, exp ID {exp_id}, one of the"
-                f" optional inputs, {reqd_reac_inp}, should be given.")
-
-    # Check for all required inputs for the given measurement type
+    # Load some initial parameters
+    ndims = util.get_exp_dims(exp_set)
     meas_type = exp_set['overall']['meas_type']
-    reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][1]
-    for reqd_meas_inp in reqd_meas_inps:
-        assert reqd_meas_inp in exp_obj['conds'].keys(), (
-            f"For set ID {set_id}, exp ID {exp_id}, the required input"
-            f" {reqd_meas_inp} is absent from the 'conds' field.")
+    plot_var = exp_set['plot']['variable']  # the variable for the exp_set
+    exp_objs = exp_set['exp_objs']
+    num_conds = len(exp_objs)
 
-    # Check that only allowed conditions are given
-    poss_inps = get_poss_inps(reac_type, meas_type, 'exps')
-    for inp in exp_obj['conds'].keys():
-        assert inp in poss_inps, (
-            f"For set ID {set_id}, exp ID {exp_id}, the input '{inp}' is not"
-            f" permitted for the reactor type '{reac_type}' and the measurement"
-            f" type '{meas_type}'. Options are {poss_inps}.")
+    # Get exp_xdata and exp_ydata based on measurement type
+    if meas_type == 'outlet':
+        # Get the xdata
+        exp_xdata = np.ndarray(len(exp_objs))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            exp_xdata[cond_idx] = exp_obj['conds'][plot_var][0]
 
-    # Check that all arrays in the result section are the same length
-    lengths = []
-    for name, result in exp_obj['result'].items():
-        if isinstance(result, tuple):  # if a tuple, result is a val_tuple
-            val = result[0]  # the array is the first entry
-            if isinstance(val, np.ndarray):
-                val = val[~np.isnan(val)]  # remove NaNs
-                lengths.append(len(val))
-        elif isinstance(result, dict):  # if dct, result is a dct of val_tuples
-            for val_tuple in result.values():
-                val = val_tuple[0]  # the array is the first entry
-                if isinstance(val, np.ndarray):
-                    val = val[~np.isnan(val)]  # remove NaNs
-                    lengths.append(len(val))
+        # Get the ydata
+        spcs = exp_set['spc'].keys()
+        num_targets = len(spcs)
+        exp_ydata = np.ndarray((num_conds, num_targets))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            result = exp_obj['result']
+            for spc_idx, spc in enumerate(spcs):
+                if spc in result:
+                    # If the entry is a Numpy array, it was empty in the Excel
+                    # sheet; set to NaN in this case
+                    if isinstance(result[spc][0], np.ndarray):
+                        exp_ydata[cond_idx, spc_idx] = np.nan
+                    else:
+                        exp_ydata[cond_idx, spc_idx] = result[spc][0]
+                else:
+                    exp_ydata[cond_idx, spc_idx] = np.nan
 
-    # The lengths should all be the same (i.e., 1) or empty if no arrays (0)
-    assert len(set(lengths)) in (0, 1), (
-        f"For set ID {set_id}, exp ID {exp_id}, the time-resolved arrays in the"
-        f" 'result' section are not all the same length")
+    elif meas_type == 'idt':
+        # Get the xdata
+        exp_xdata = np.ndarray(len(exp_objs))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            exp_xdata[cond_idx] = exp_obj['conds'][plot_var][0]
 
-    # Check some things regarding absorption measurements
-    if meas_type == 'abs':
-        # Check that the keys of the result section are formatted correctly
-        for name, result in exp_obj['result'].items():
-            if name == 'abs':
-                assert isinstance(result, dict), (
-                    f"For set ID {set_id}, exp ID {exp_id}, the 'abs' result"
-                    f" should be a dict.")
-                for key in result.keys():
-                    assert isinstance(key, int), (
-                        f"For set ID {set_id}, exp ID {exp_id}, the 'abs'"
-                        f" result should have integers as the keys (1, 2, ...)")
+        # Get the ydata
+        num_targets = exp_checker.get_num_idts(exp_set)
+        exp_ydata = np.ndarray((num_conds, num_targets))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            result = exp_obj['result']['idt']
+            for idt_idx in range(num_targets):
+                if idt_idx + 1 in result:  # +1 b/c idt #s in Excel are 1-index
+                    exp_ydata[cond_idx, idt_idx] = result[idt_idx + 1][0]
+                else:
+                    exp_ydata[cond_idx, idt_idx] = np.nan
 
-    # Check that the end_time and timestep are compatible
-    timestep = exp_set['plot'].get('timestep')
-    end_time = exp_obj['conds'].get('end_time')[0]
-    if timestep is not None and end_time is not None:
-        assert np.isclose(end_time % timestep, 0, atol=1e-8), (
-            f'For set ID {set_id}, exp ID {exp_id}, the end_time, {end_time},'
-            f' is not a multiple of the timestep, {timestep}.')
+    elif meas_type == 'conc':
+        # Get the xdata
+        exp_xdata = get_unique_times(exp_set)
+        num_times = len(exp_xdata)
 
+        # Get the ydata
+        spcs = exp_set['spc'].keys()
+        num_targets = len(spcs)
+        exp_ydata = np.ndarray((num_conds, num_targets, num_times))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            result = exp_obj['result']
+            exp_times = result['time'][0]
+            for spc_idx, spc in enumerate(spcs):
+                if spc in result:
+                    sing_spc = result[spc][0]
+                    exp_ydata[cond_idx, spc_idx] = interp_single_array(
+                        sing_spc, exp_times, exp_xdata)
+                else:
+                    exp_ydata[cond_idx, spc_idx] = np.nan
+    else:
+        raise NotImplementedError(f"meas_type '{meas_type}' is not working")
 
-# Miscellaneous functions
-def get_poss_inps(reac_type, meas_type, plot_or_exps, remove_bad=True):
-    """ Gets all possible (i.e., allowed) inputs for either the 'plot' field of
-        the 'info' sheet or the 'conds' field of the exp sheets
-
-        :param reac_type: the reactor type
-        :type reac_type: str
-        :param meas_type: the measurement type
-        :type meas_type: str
-        :param plot_or_exps: either 'plot' or 'exps'
-        :type plot_or_exps: str
-        :param remove_bad: whether or not to remove the plot-specific inputs
-        :type remove_bad: Bool
-        :return poss_inps: all possible inputs
-        :rtype: tuple (str1, str2, ...)
-    """
-
-    # Get the required inputs and flatten them
-    if plot_or_exps == 'plot':
-        reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][0]
-    elif plot_or_exps == 'exps':
-        reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][1]
-    reqd_reac_inps = ALLOWED_REAC_TYPES[reac_type][0]
-    flat_reqd_meas_inps = flatten_tup(reqd_meas_inps)
-    flat_reqd_reac_inps = flatten_tup(reqd_reac_inps)
-
-    # Get the optional inputs
-    opt_meas_inps = ALLOWED_MEAS_TYPES[meas_type][2]
-    opt_reac_inps = ALLOWED_REAC_TYPES[reac_type][1]
-
-    # Add together
-    poss_inps = flat_reqd_meas_inps + flat_reqd_reac_inps + opt_meas_inps +\
-        opt_reac_inps
-
-    # Remove the plotting variable stuff if indicated
-    if remove_bad:
-        bad_items = ('variable', 'start', 'end', 'inc')
-        poss_inps = list(poss_inps)
-        for bad_item in bad_items:
-            if bad_item in poss_inps:
-                poss_inps.remove(bad_item)
-        poss_inps = tuple(poss_inps)
-
-    return poss_inps
-
-
-def flatten_tup(inp_tup):
-    """ If any elements in a tuple are themselves tuples, flattens out the tuple
-        into a single, flat tuple
-
-        Example: if inp_tup = (1, (2, 3), 4), the output flat
-        tuple will be flat_tup = (1, 2, 3, 4)
-    """
-
-    flat_tup = []
-    for entry in inp_tup:
-        if isinstance(entry, str):
-            flat_tup.append(entry)
-        else:  # if a tuple
-            for sub_entry in entry:
-                flat_tup.append(sub_entry)
-    flat_tup = tuple(flat_tup)
-
-    return flat_tup
-
-
-def get_num_wvlens(exp_set):
-    """ Gets the number of wavelengths specified throughout the experimental set
-    """
-
-    meas_type = exp_set['overall']['meas_type']
-    num_wvlens = 0
-    for exp_obj in exp_set['exp_objs']:
-        current_num = len(exp_obj['result'][meas_type])
-        if current_num > num_wvlens:
-            num_wvlens = current_num
-
-    return num_wvlens
-
-
-def get_num_idts(exp_set):
-    """ Gets the number of IDT values specified throughout the experimental set
-    """
-
-    num_idts = 0
-    for exp_obj in exp_set['exp_objs']:
-        current_num = len(exp_obj['result']['idt'])
-        print('current_num:', current_num)
-        if current_num > num_idts:
-            num_idts = current_num
-
-    return num_idts
+    return exp_ydata, exp_xdata

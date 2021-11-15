@@ -93,7 +93,10 @@ def get_cond_titles(exp_set, options):
 
     # If on a non-time-resolved measurement
     elif meas_type in ('idt', 'outlet'):
-        cond_titles = None
+        if meas_type == 'idt':
+            cond_titles = ['Ignition delays']
+        if meas_type == 'outlet':
+            cond_titles = ['Outlet concentrations']
         xlabel = ALLOWED_UNITS[plot_var][2]
 
     # Haven't figured this one out yet

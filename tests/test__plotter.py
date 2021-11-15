@@ -21,7 +21,8 @@ def test_st():
         'data/Mulvihill_N2O_species.csv',
     ]
     calc_type = 'outcome'
-    plot_or_exps = 'exps'
+    x_source = 'plot'  # should be 'plot' or 'exps'
+    conds_source = 'exps'  # should be 'plot' or 'exps'
 
     # Load the various objects using the filenames
     exp_sets = exp_parser.load_exp_sets(exp_filenames)
@@ -30,22 +31,88 @@ def test_st():
 
     # Run the simulation
     set_results, set_times = run_set.mult_sets(
-        exp_sets, gases, mech_spc_dcts, calc_type, plot_or_exps)
-    print(set_results[0][-1][0])
+        exp_sets, gases, mech_spc_dcts, calc_type, x_source, conds_source)
+    mech_nicknames = ['my_mech']
+
+    # Plot the results...for now, just run for a single set
+    figs_axes = outcome.single_set(set_results[0], set_times[0], exp_sets[0],
+                                   mech_nicknames)
+    plot_util.build_pdf(figs_axes, filename='output_st.pdf')
+
+
+def test_jsr():
+    """ Tests a jet-stirred reactor simulation
+    """
+
+    exp_filenames = [
+        'data/Tang_2021_NH3_JSR_phi05.xlsx'
+    ]
+    mech_filenames = [
+        'data/Glarborg.cti',
+    ]
+    spc_csv_filenames = [
+        'data/Glarborg_species.csv',
+    ]
+    calc_type = 'outcome'
+    x_source = 'plot'  # should be 'plot' or 'exps'
+    conds_source = 'plot'  # should be 'plot' or 'exps'
+
+    # Load the various objects using the filenames
+    exp_sets = exp_parser.load_exp_sets(exp_filenames)
+    gases = sim_util.load_solution_objs(mech_filenames)
+    mech_spc_dcts = spc_parser.mech_spc_dcts_from_filenames(spc_csv_filenames)
+
+    # Run the simulation
+    set_results, set_times = run_set.mult_sets(
+        exp_sets, gases, mech_spc_dcts, calc_type, x_source, conds_source)
+    print(set_results[0])
     dim_check = set_results[0]
     print('shape of mech_result: ', np.shape(dim_check))
     mech_nicknames = ['my_mech']
-    # Plot the results...for now, just run for a single set
 
+    # Plot the results...for now, just run for a single set
     figs_axes = outcome.single_set(set_results[0], set_times[0], exp_sets[0],
                                    mech_nicknames)
+    plot_util.build_pdf(figs_axes, filename='output_jsr.pdf')
 
 
-    plot_util.build_pdf(figs_axes, filename='test.pdf')
+def test_idt():
+    """ Tests a jet-stirred reactor simulation
+    """
 
+    exp_filenames = [
+        'data/mathieu_2015_phi05_99_1atm.xlsx'
+    ]
+    mech_filenames = [
+        'data/glarborg_oh_star.cti',
+    ]
+    spc_csv_filenames = [
+        'data/glarborg_oh_star_species.csv',
+    ]
+    calc_type = 'outcome'
+    x_source = 'plot'  # should be 'plot' or 'exps'
+    conds_source = 'plot'  # should be 'plot' or 'exps'
 
+    # Load the various objects using the filenames
+    exp_sets = exp_parser.load_exp_sets(exp_filenames)
+    gases = sim_util.load_solution_objs(mech_filenames)
+    mech_spc_dcts = spc_parser.mech_spc_dcts_from_filenames(spc_csv_filenames)
+
+    # Run the simulation
+    set_results, set_times = run_set.mult_sets(
+        exp_sets, gases, mech_spc_dcts, calc_type, x_source, conds_source)
+    print(set_results[0])
+    dim_check = set_results[0]
+    print('shape of mech_result: ', np.shape(dim_check))
+    mech_nicknames = ['my_mech']
+
+    # Plot the results...for now, just run for a single set
+    figs_axes = outcome.single_set(set_results[0], set_times[0], exp_sets[0],
+                                   mech_nicknames)
+    plot_util.build_pdf(figs_axes, filename='output_idt.pdf')
 
 
 if __name__ == '__main__':
+    # test_st()
     # test_jsr()
-    test_st()
+    test_idt()
