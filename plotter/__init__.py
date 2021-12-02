@@ -1,9 +1,11 @@
-from mechsimulator.plotter import comparisons
+from mechsimulator.plotter import main
+from mechsimulator.plotter import outcome
 from mechsimulator.plotter import sens
 from mechsimulator.plotter import util
 
 __all__ = [
-    'comparisons',
+    'main',
+    'outcome',
     'sens',
     'util',
 ]

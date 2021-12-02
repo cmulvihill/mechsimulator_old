@@ -1,10 +1,10 @@
-""" Tests the mechsimulator.sim.reactors module
+""" Tests the mechsimulator.simulator.reactors module
 """
 
 import cantera as ct
 import numpy as np
-from mechsimulator.sim import reactors
-from mechsimulator.sim import util
+from mechsimulator.simulator import reactors
+from mechsimulator.simulator import util
 
 
 def test_st_no_dpdt():

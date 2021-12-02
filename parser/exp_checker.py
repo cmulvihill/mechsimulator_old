@@ -48,10 +48,10 @@ ALLOWED_REAC_TYPES = {
 ALLOWED_MEAS_TYPES = {
     'abs':          (('variable', 'timestep', 'end_time', 'wavelength'),
                      ('abs_coeff', 'path_length'),
-                     ()),
+                     ('start', 'end', 'inc',)),
     'emis':         (('variable', 'timestep', 'end_time', 'wavelength'),
                      (),
-                     ()),
+                     ('start', 'end', 'inc',)),
     'idt':          (('variable', 'start', 'end', 'inc', 'idt_target',
                       'idt_method', 'end_time'),
                      (),
@@ -61,17 +61,17 @@ ALLOWED_MEAS_TYPES = {
                      ()),
     'ion':          (('variable', 'timestep', 'end_time',),
                      (),
-                     ()),
+                     ('start', 'end', 'inc',)),
     'pressure':     (('variable', 'timestep', 'end_time',),
                      (),
-                     ()),
+                     ('start', 'end', 'inc',)),
     'conc':         (('variable', 'timestep', 'end_time',),
                      (),
-                     ()),
+                     ('start', 'end', 'inc',)),
 }
 
 # Miscellaneous plotting inputs that are allowed (although will be often unused)
-MISC_PLOT_INPUTS = ('group_by', 'ignore_exps', 'rows_cols', 'marker_size',
+MISC_PLOT_INPUTS = ('group_by', 'rows_cols', 'marker_size',
                     'exp_color', 'plot_points', 'xunit', 'xlim', 'yunit',
                     'ylim', 'omit_targets')
 
@@ -211,15 +211,24 @@ def chk_exp_set(exp_set):
             f'For set ID {set_id}, the end_time, {end_time}, is not a multiple '
             f'of the timestep, {timestep}.')
 
-    # # Check some things regarding the plot_options field
-    # plot_format = exp_set['plot_format']
-    # # Check that only allowed groups were given
-    # for param, val in plot_format.items():
-    #     assert param in MISC_PLOT_INPUTS, (
-    #         f"For set ID {set_id}, the plot_format input '{param}' is not "
-    #         f"allowed. Options are {MISC_PLOT_INPUTS}."
-    #     if param == 'group_by':
-    #         assert val in ('target', 'cond'):
+    # Check some things regarding the plot_options field
+    plot_format = exp_set['plot_format']
+    # Check that only allowed groups were given
+    for param, val in plot_format.items():
+        assert param in MISC_PLOT_INPUTS, (
+            f"For set ID {set_id}, the plot_format input '{param}' is not "
+            f"allowed. Options are {MISC_PLOT_INPUTS}.")
+        if param == 'group_by':
+            assert val in ('target', 'cond'), (
+                f"'group_by' should be 'target' or 'cond', not {val}")
+        if param == 'plot_points':
+            assert isinstance(val, bool), (
+                f"'plot_points' should be either 'yes' or 'no', not {val}")
+        # Checks on the xunit and yunit are done in the plotting code
+        if param in ('xunit', 'yunit'):
+            assert val not in ('C', 'F'), (
+                f"For set ID {set_id}, the x/y unit cannot be {val}. "
+                f"Temperature must be in K.")
 
 
 def chk_exp_obj(exp_obj, exp_set):
@@ -310,15 +319,6 @@ def chk_exp_obj(exp_obj, exp_set):
                         f"For set ID {set_id}, exp ID {exp_id}, the 'abs'"
                         f" result should have integers as the keys (1, 2, ...)")
 
-    # # Check that the end_time and timestep are compatible
-    # timestep = exp_set['plot'].get('timestep')
-    # if exp_obj['conds'].get('end_time') is not None:  # stops error from [0]
-    #     end_time = exp_obj['conds'].get('end_time')[0]
-    # if timestep is not None and end_time is not None:
-    #     assert np.isclose(end_time % timestep, 0, atol=1e-8), (
-    #         f'For set ID {set_id}, exp ID {exp_id}, the end_time, {end_time},'
-    #         f' is not a multiple of the timestep, {timestep}.')
-
 
 # Miscellaneous functions
 def get_poss_inps(reac_type, meas_type, plot_or_exps, rm_bad=True):
@@ -407,7 +407,6 @@ def get_num_idts(exp_set):
     num_idts = 0
     for exp_obj in exp_set['exp_objs']:
         current_num = len(exp_obj['result']['idt'])
-        print('current_num:', current_num)
         if current_num > num_idts:
             num_idts = current_num
 

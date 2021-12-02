@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from mechsimulator.parser import exp_checker
 from mechsimulator.parser import util
-from mechsimulator.parser import rdkit_
+from mechsimulator.parser import spc
 
 # Allowed physical quantities (keys) and:
 # (1) corresponding allowed units
@@ -16,37 +16,37 @@ from mechsimulator.parser import rdkit_
 ALLOWED_UNITS = {
     'temp':         (('K', 'C', 'F', 'R'),
                      (1, None, None, 5.55555e-1),
-                     'Temperature (K)'),
+                     'Temperature'),
     'pressure':     (('atm', 'bar', 'kPa', 'Pa', 'MPa'),
                      (1, 9.86923e-1, 9.86923e-3, 9.86923e-6, 9.86923e0),
-                     'Pressure (atm)'),
+                     'Pressure'),
     'time':         (('s', 'ms', 'micros'),
                      (1, 1.0e-3, 1.0e-6),
-                     'Time (s)'),
+                     'Time'),
     'conc':         (('X', 'ppm', '%'),
                      (1, 1.0e-6, 1.0e-2),
-                     'Concentration (mole fraction)'),
+                     'Mole fraction'),
     'length':       (('m', 'cm', 'mm'),
                      (1, 1.0e-2, 1.0e-3),
-                     'Length (m)'),
+                     'Length'),
     'area':         (('m2', 'cm2', 'mm2'),
                      (1, 1.0e-4, 1.0e-6),
-                     'Area (m^2)'),
+                     'Area'),
     'vol':          (('m3', 'cm3', 'mm3'),
                      (1, 1.0e-6, 1.0e-9),
-                     'Volume (m^3)'),
+                     'Volume'),
     'abs_coeff':    (('cm-1atm-1',),
                      (1,),
-                     'Absorption coefficient (cm^-1.atm^-1)'),
+                     'Absorption coefficient'),
     'abs':          (('%', 'fraction'),
                      (1, 100),
-                     'Absorption (%)'),
+                     'Absorption'),
     'dpdt':         (('%/ms',),
                      (1,),
-                     'dP/dt (%/ms)'),
+                     'dP/dt'),
     'mdot':         (('kg/s', 'g/s'),
                      (1, 1.0e-3,),
-                     'Mass flow rate (kg/s)')
+                     'Mass flow rate')
 }
 
 # Mappings for alternate names (keys) to their physical quantities (values)
@@ -60,24 +60,6 @@ ALTERNATE_NAMES = {
 
 # Number of columns in the experimental sheets
 NUM_EXP_CLMS = 7
-
-
-def load_exp_sets(exp_filenames):
-    """ Reads multiple Excel files that each contain data on an experiment set
-        and returns a list of exp_set objects
-
-        :param exp_filenames: paths to .xlsx files, each describing an exp_set
-        :type exp_filenames: list
-        :return exp_sets: list of exp_set objects
-        :rtype: list
-    """
-
-    exp_sets = []
-    for exp_filename in exp_filenames:
-        exp_set = load_exp_set(exp_filename)
-        exp_sets.append(exp_set)
-
-    return exp_sets
 
 
 def load_exp_set(exp_filename):
@@ -170,24 +152,20 @@ def read_info_sheet(df):
                 conv_val = convert_units(raw_val, param, units)
             # If there is a comma in the input field, split the str around it
             if isinstance(conv_val, str) and ',' in conv_val:
-                conv_val = conv_val.split(',')
-                for idx, entry in enumerate(conv_val):
-                    conv_val[idx] = entry.strip()  # remove trailing/leading WS.
+                conv_val = [entry.strip() for entry in conv_val.split(',')]
             # If there was no comma, convert the single value from str to lst
             # for a few special parameters
             elif param in ('idt_target', 'idt_method', 'wavelength'):
                 conv_val = [conv_val]
             exp_set[group][param] = conv_val  # note: don't use fake_param
         elif group == 'plot_format':
-            if raw_val in ('xlim', 'ylim'):
-                conv_val = []
-                for entry in raw_val.split(','):
-                    conv_val.append(float(entry))
-            elif raw_val == 'omit_targets':
-                conv_val = []
-                for entry in raw_val.split(','):
-                    conv_val.append(entry)
-            elif raw_val in ('ignore_exps', 'plot_points'):
+            if param in ('xlim', 'ylim'):
+                conv_val = [float(entry) for entry in raw_val.split(',')]
+            elif param == 'rows_cols':
+                conv_val = [int(entry) for entry in raw_val.split(',')]
+            elif param == 'omit_targets':
+                conv_val = [entry.strip() for entry in raw_val.split(',')]
+            elif param == 'plot_points':
                 if raw_val == 'yes':
                     conv_val = True
                 elif raw_val == 'no':
@@ -331,7 +309,7 @@ def read_spc_row(row):
         f"'spc' row {list(row)} is too short. Should have smiles, multiplicity,"
         f" charge, and excited flag given.")
     smiles, mult, charge, exc_flag = row[2], row[3], row[4], row[5]
-    inchi = rdkit_.to_inchi(rdkit_.from_smiles(smiles))
+    inchi = spc.to_inchi(spc.from_smiles(smiles))
     spc_dct = {
         'inchi': inchi,
         'smiles': smiles,
@@ -507,5 +485,7 @@ def get_exp_data(exp_set):
                     exp_ydata[cond_idx, spc_idx] = np.nan
     else:
         raise NotImplementedError(f"meas_type '{meas_type}' is not working")
+
+    exp_xdata = np.array(exp_xdata)  # convert list to numpy array
 
     return exp_ydata, exp_xdata

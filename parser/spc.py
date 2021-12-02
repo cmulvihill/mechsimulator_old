@@ -1,10 +1,11 @@
 """
-Parses spc.csv files containing species information to obtain mech_spc_dcts
+Parses a spc.csv file containing species information to obtain a mech_spc_dct
 """
 
 import csv
 import copy
-from mechsimulator.parser import rdkit_
+from rdkit import RDLogger
+import rdkit.Chem as _rd_chem
 
 ALLOWED_COLUMN_NAMES = (
     'name',
@@ -17,46 +18,31 @@ ALLOWED_COLUMN_NAMES = (
     'sens'
 )
 
+# Prevents some weird valence error warnings
+_LOGGER = RDLogger.logger()
+_LOGGER.setLevel(RDLogger.ERROR)
 
-def mech_spc_dcts_from_filenames(filenames, quotechar="'"):
+
+def load_mech_spc_dct(spc_filename, quotechar=None):
     """ Obtains a single mech_spc_dct given a spc.csv filename
 
-        :param filenames: filenames of the spc.csv files to be read
-        :type filenames: list [filename1, filename 2, ...]
-        :param quotechar: the quotechar used to optionally ignore commas
-        :type quotechar: str
-        :return mech_spc_dcts: mech_spc_dcts for all filenames given
-        :rtype: list
-    """
-
-    mech_spc_dcts = []
-    for filename in filenames:
-        mech_spc_dct = mech_spc_dct_from_filename(filename, quotechar=quotechar)
-        mech_spc_dcts.append(mech_spc_dct)
-
-    return mech_spc_dcts
-
-
-def mech_spc_dct_from_filename(filename, quotechar="'"):
-    """ Obtains a single mech_spc_dct given a spc.csv filename
-
-        :param filename: the filename of the spc.csv file to be read
-        :type filename: str
-        :param quotechar: the quotechar used to optionally ignore commas
+        :param spc_filename: filename of the spc.csv file to be read
+        :type spc_filename: str
+        :param quotechar: character used to optionally ignore commas; " or '
         :type quotechar: str
         :return mech_spc_dct: identifying information on species in a mech
         :rtype: dct {spc1: spc_dct1, spc2: ...}
     """
 
-    with open(filename, 'r') as file_obj:
+    with open(spc_filename, 'r') as file_obj:
         file_str = file_obj.read()
 
-    mech_spc_dct = mech_spc_dct_from_str(file_str, quotechar=quotechar)
+    mech_spc_dct = mech_spc_dct_str(file_str, quotechar=quotechar)
 
     return mech_spc_dct
 
 
-def mech_spc_dct_from_str(file_str, quotechar="'"):
+def mech_spc_dct_str(file_str, quotechar=None):
     """ Obtains a single mech_spc_dct given a string parsed from a spc.csv file
 
         :param file_str: the string that was read directly from the .csv file
@@ -68,6 +54,7 @@ def mech_spc_dct_from_str(file_str, quotechar="'"):
     """
 
     # Check for incorrect quotechar usage
+    quotechar = quotechar or "'"  # default is a single quotation mark
     if quotechar == '"':
         assert "'" not in file_str, (
             f'A quotechar input of double quotation marks was selected, but at '
@@ -148,11 +135,11 @@ def fill_in_spc_dct(spc_dct):
 
     # Add SMILES or InChI if missing
     if 'inchi' not in filled_spc_dct:
-        filled_spc_dct['inchi'] = rdkit_.to_inchi(rdkit_.from_smiles(
+        filled_spc_dct['inchi'] = to_inchi(from_smiles(
             filled_spc_dct['smiles']))
 
     elif 'smiles' not in filled_spc_dct:
-        filled_spc_dct['smiles'] = rdkit_.to_smiles(rdkit_.from_inchi(
+        filled_spc_dct['smiles'] = to_smiles(from_inchi(
             filled_spc_dct['inchi']))
 
     # Add charge and exc_flag if missing; assume 0 for both
@@ -226,3 +213,67 @@ def parse_line(line, idx, num_cols, quotechar="'"):
         f'csv file indicates {num_cols} columns are needed.')
 
     return cols
+
+
+def from_inchi(ich, print_debug=False):
+    """ Generate an RDKit molecule object from an InChI string.
+
+        :param ich: InChI string
+        :type ich: str
+        :param print_debug: control the printing of a debug message
+        :type print_debug: bool
+        :rtype: RDKit molecule object
+    """
+
+    rdm = _rd_chem.inchi.MolFromInchi(ich, treatWarningAsError=False)
+    if rdm is None and print_debug:
+        print('rdm fails for {} by returning {}'.format(ich, rdm))
+
+    return rdm
+
+
+def to_inchi(rdm, options='', with_aux_info=False):
+    """ Generate an InChI string from an RDKit molecule object.
+
+        :param rdm: molecule object
+        :type rdm: RDKit molecule object
+        :param options:
+        :type options: str
+        :param with_aux_info: include auxiliary information
+        :type with_aux_info: bool
+        :rtype: str
+    """
+
+    if with_aux_info:
+        ret = _rd_chem.inchi.MolToInchiAndAuxInfo(rdm, options=options)
+    else:
+        ret = _rd_chem.inchi.MolToInchi(rdm, options=options)
+
+    return ret
+
+
+def from_smiles(smi, print_debug=False):
+    """ Generate an RDKit molecule object from a SMILES string.
+
+        :param smi: SMILES string
+        :type smi: str
+        :param print_debug: control the printing of a debug message
+        :type print_debug: bool
+        :rtype: RDKit molecule object
+    """
+
+    rdm = _rd_chem.MolFromSmiles(smi)
+    if rdm is not None and print_debug:
+        print('rdm fails for {} by returning {}'.format(smi, rdm))
+
+    return rdm
+
+
+def to_smiles(rdm):
+    """ Generate a SMILES string from an RDKit molecule object.
+
+        :param rdm: molecule object
+        :type rdm: RDKit molecule object
+        :rtype: str
+    """
+    return _rd_chem.MolToSmiles(rdm)

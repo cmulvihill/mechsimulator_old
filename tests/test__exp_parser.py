@@ -121,7 +121,7 @@ def test_mdot_jsr():
 
 if __name__ == '__main__':
     test_convert_units()
-    # test_st_conc()
+    test_st_conc()
     # test_st_abs()
     test_st_idt()
     test_pfr()

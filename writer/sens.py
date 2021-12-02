@@ -1,5 +1,5 @@
 import pandas as pd
-from mechsimulator.sim import sens as sim_sens
+from mechsimulator.simulator import sens as sim_sens
 
 
 def write_file(sens_coeffs, target_spcs, temps, rxn_names, ref_results,
