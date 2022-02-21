@@ -64,10 +64,11 @@ def test_st_conc():
 def test_st_abs():
     """ Tests the reading of an Excel file for a st_abs experiment
     """
-    filename = 'sample_st_abs_v1.xlsx'
+    filename = 'davidson_1990_no.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
-    print(_)
+    # print(_['overall']['exp_ydata'])
+    print(_['mix'])
 
 
 def test_st_idt():
@@ -83,7 +84,7 @@ def test_st_idt():
 def test_pfr():
     """ Tests the reading of an Excel file for a pfr experiment
     """
-    filename = 'sample_pfr_v1.xlsx'
+    filename = 'stagni_2020_pfr.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
 
@@ -119,13 +120,22 @@ def test_mdot_jsr():
     _ = exp.load_exp_set(filepath)
 
 
+def test_lfs():
+
+    filename = 'sample_lfs.xlsx'
+    filepath = os.path.join(DAT_PATH, filename)
+    _ = exp.load_exp_set(filepath)
+    print('sim_opts:\n', _['sim_opts'])
+    print(type(_['sim_opts']['ratio']))
+
 if __name__ == '__main__':
-    test_convert_units()
-    test_st_conc()
+    # test_convert_units()
+    # test_st_conc()
     # test_st_abs()
-    test_st_idt()
-    test_pfr()
-    test_jsr()
+    # test_st_idt()
+    # test_pfr()
+    # test_jsr()
     # test_const_t_p_abs()
-    test_rcm_idt()
-    test_mdot_jsr()
+    # test_rcm_idt()
+    # test_mdot_jsr()
+    test_lfs()

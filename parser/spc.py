@@ -31,7 +31,7 @@ def load_mech_spc_dct(spc_filename, quotechar=None):
         :param quotechar: character used to optionally ignore commas; " or '
         :type quotechar: str
         :return mech_spc_dct: identifying information on species in a mech
-        :rtype: dct {spc1: spc_dct1, spc2: ...}
+        :rtype: dict {spc1: spc_dct1, spc2: ...}
     """
 
     with open(spc_filename, 'r') as file_obj:
@@ -50,11 +50,12 @@ def mech_spc_dct_str(file_str, quotechar=None):
         :param quotechar: the quotechar used to optionally ignore commas
         :type quotechar: str
         :return mech_spc_dct: identifying information on species in a mech
-        :rtype: dct {spc1: spc_dct1, spc2: ...}
+        :rtype: dict {spc1: spc_dct1, spc2: ...}
     """
 
+    quotechar = quotechar or "'"
+
     # Check for incorrect quotechar usage
-    quotechar = quotechar or "'"  # default is a single quotation mark
     if quotechar == '"':
         assert "'" not in file_str, (
             f'A quotechar input of double quotation marks was selected, but at '
@@ -68,10 +69,12 @@ def mech_spc_dct_str(file_str, quotechar=None):
     else:
         raise NotImplementedError(
             f'The quotechar {quotechar} is not allowed. Options are either '
-            f'single or double quotation marks.')
+            f'a single or double quotation mark.')
 
     # Split into lines
     lines = file_str.split('\n')
+    if lines[-1] == '':
+        del lines[-1]  # gets rid of the annoying last line that gets added
 
     # Build the mech_spc_dct line by line
     mech_spc_dct = {}
@@ -85,7 +88,7 @@ def mech_spc_dct_str(file_str, quotechar=None):
             # Check that the species name was not already defined
             assert spc_name not in mech_spc_dct.keys(), (
                 f'The species name {spc_name} appears in the csv file more than'
-                f' once! The second time is on line {idx}, {line}.')
+                f' once. The second time is on line {idx + 1}, {line}.')
 
             # Fill in the spc_dct and then add it to the mech_spc_dct
             spc_dct = fill_in_spc_dct(spc_dct)  # add some information
@@ -104,31 +107,32 @@ def get_spc_dct(cols, col_headers):
         :return spc_name: the mechanism name for the species
         :rtype: str
         :return spc_dct: identifying information for a single species
-        :rtype: dct
+        :rtype: dict
     """
 
     # Build the spc_dct for this species, column by column
     spc_dct = {}
     for idx, col in enumerate(cols):
-        if col_headers[idx] == 'name':
+        col_header = col_headers[idx]
+        if col_header == 'name':
             spc_name = col
         # If charge or mult or exc_flag, convert to int if not empty
-        elif col_headers[idx] in ('charge', 'mult', 'exc_flag') and col != '':
-            spc_dct[col_headers[idx]] = int(col)
+        elif col_header in ('charge', 'mult', 'exc_flag') and col != '':
+            spc_dct[col_header] = int(col)
         else:
-            spc_dct[col_headers[idx]] = col
+            spc_dct[col_header] = col
 
     return spc_name, spc_dct
 
 
 def fill_in_spc_dct(spc_dct):
-    """ Looks at various identifiers in a spc_dct and fills in certain values
+    """ Looks at various identifiers in a spc_dct and fills in missing values
 
         :param spc_dct: identifying information for a single species
-        :type: dct
+        :type: dict
         :return filled_spc_dct: identifying information for a single species
             that may now be supplemented with some information that was missing
-        :rtype: dct
+        :rtype: dict
     """
 
     filled_spc_dct = copy.deepcopy(spc_dct)
@@ -209,8 +213,8 @@ def parse_line(line, idx, num_cols, quotechar="'"):
 
     cols = next(csv.reader([line], quotechar=quotechar))
     assert len(cols) == num_cols, (
-        f'Line {idx}, {line}, has {len(cols)} columns. The first line in the'
-        f'csv file indicates {num_cols} columns are needed.')
+        f'Line {idx + 1}, {line}, has {len(cols)} columns. The first line '
+        f'in the csv file indicates {num_cols} columns are needed.')
 
     return cols
 

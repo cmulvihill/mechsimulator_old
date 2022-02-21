@@ -8,6 +8,9 @@
  1. removed CO/CO2 subset of reactions since thermo was missing
  2. added HNOH thermo from the Glarborg (2018) NOx mech
  3. removed non-UTF-8 characters (I think)
+ 4. added OH* submechanism from Mulvihill (2020)
+ 5. added OH* thermo from Glarborg (2018)
+ 6. removed CO2 third body from N2O decomposition
 
  ************************************************************************
  ************************************************************************
@@ -74,9 +77,9 @@ units(length='cm', time='s', quantity='mol', act_energy='cal/mol')
 ideal_gas(name='gas',
           elements="O H C N Ar",
           species="""NO     NO2    N2O    H      O      OH     H2     O2
-                     HO2    H2O    H2O2   NH3    NH2    NH     N      N2H4
-                     N2H3   N2H2   H2NN   NNH    NO3    HNO    HON    HONO
-                     HNO2   H2NO   NH2OH  HNOH   HONO2  AR     N2""",
+                     HO2    H2O    H2O2   OH*    NH3    NH2    NH     N
+                     N2H4   N2H3   N2H2   H2NN   NNH    NO3    HNO    HON
+                     HONO   HNO2   H2NO   NH2OH  HNOH   HONO2  AR     N2""",
           reactions='all',
           initial_state=state(temperature=300.0, pressure=OneAtm))
 
@@ -215,6 +218,18 @@ species(name='H2O2',
                        1.98211400E-10, -1.13968792E-14, -1.79847939E+04,
                        6.64969660E-01])),
         note='T8/03')
+
+species(name='OH*',
+        atoms='H:1 O:1',
+        thermo=(NASA([200.00, 1000.00],
+                     [ 3.46084428E+00,  5.01872172E-04, -2.00254474E-06,
+                       3.18901984E-09, -1.35451838E-12,  5.07349466E+04,
+                       1.73976415E+00]),
+                NASA([1000.00, 6000.00],
+                     [ 2.75582920E+00,  1.39848756E-03, -4.19428493E-07,
+                       6.33453282E-11, -3.56042218E-15,  5.09751756E+04,
+                       5.62581429E+00])),
+        note='ATcT3E')
 
 species(name='NH3',
         atoms='H:3 N:1',
@@ -1339,8 +1354,9 @@ reaction('HONO2 + OH <=> H2O + NO3', [1.000000e+10, 0.0, -1240.0])
 falloff_reaction('N2O (+ M) <=> N2 + O (+ M)',
                  kf=[1.300000e+12, 0.0, 62570.0],
                  kf0=[4.000000e+14, 0.0, 56600.0],
-                 efficiencies='CO2:3.0 H2O:12.0 N2:1.7 O2:1.4')
+                 efficiencies='H2O:12.0 N2:1.7 O2:1.4')
 #  SKR/GLA04 JOH/GLA92,ROH/HAN96
+#  CO2/3.0/
 
 # Reaction 197
 reaction('N2O + H <=> N2 + OH', [6.400000e+07, 1.835, 13492.0])

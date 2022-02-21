@@ -3711,3 +3711,50 @@ reaction('H2NN + NH2 <=> NNH + NH3', [1.800000e+06, 1.94, -1152.0])
 # CH3NCH=CH3+HCN                        8.1E15  -2.375   14942
 # CH3NCH+H=CH2NCH2+H                    2.0E13   0.000       0
 # CH3NCH+O=>CH3+NCO+H                   7.0E13   0.000       0
+#  OH* submechanism
+#  Mulvihill et al., Comb. Flame 213 (2020) 291-301
+
+# Reaction 212
+reaction('NO2 + H <=> NO + OH*', [7.000000e+13, 0.0, 55000.0])
+
+# Reaction 213
+reaction('N2O + H <=> N2 + OH*', [1.600000e+14, 0.0, 50300.0])
+
+# Reaction 214
+three_body_reaction('O + H + M <=> OH* + M', [1.500000e+13, 0.0, 5975.0])
+
+# Reaction 215
+reaction('H + OH* <=> H + OH', [1.310000e+13, 0.5, 167.0])
+
+# Reaction 216
+reaction('H2 + OH* <=> H2 + OH', [2.950000e+12, 0.5, 445.0])
+
+# Reaction 217
+reaction('H2O + OH* <=> H2O + OH', [5.930000e+12, 0.5, 862.0])
+
+# Reaction 218
+reaction('N2 + OH* <=> N2 + OH', [1.080000e+11, 0.5, 1240.0])
+
+# Reaction 219
+reaction('OH + OH* <=> OH + OH', [6.010000e+12, 0.5, 763.0])
+
+# Reaction 220
+reaction('O2 + OH* <=> O2 + OH', [2.100000e+12, 0.5, 483.0])
+
+# Reaction 221
+reaction('AR + OH* <=> AR + OH', [1.300000e+10, 0.5, 199.0])
+
+# Reaction 222
+reaction('NH3 + OH* <=> NH3 + OH', [9.000000e+12, 0.5, 596.0])
+
+# Reaction 223
+reaction('N2O + OH* <=> N2O + OH', [6.000000e+12, 0.5, 556.0])
+
+# Reaction 224
+reaction('NO + OH* <=> NO + OH', [6.000000e+12, 0.5, 397.0])
+
+# Reaction 225
+reaction('NO2 + OH* <=> NO2 + OH', [6.000000e+12, 0.5, 556.0])
+
+# Reaction 226
+reaction('OH* <=> OH', [1.450000e+06, 0.0, 0.0])

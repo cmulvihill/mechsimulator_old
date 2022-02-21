@@ -17,8 +17,8 @@ ALLOWED_UNITS = {
     'temp':         (('K', 'C', 'F', 'R'),
                      (1, None, None, 5.55555e-1),
                      'Temperature'),
-    'pressure':     (('atm', 'bar', 'kPa', 'Pa', 'MPa'),
-                     (1, 9.86923e-1, 9.86923e-3, 9.86923e-6, 9.86923e0),
+    'pressure':     (('atm', 'bar', 'kPa', 'Pa', 'MPa', 'torr'),
+                     (1, 9.86923e-1, 9.86923e-3, 9.86923e-6, 9.86923e0, 1/760),
                      'Pressure'),
     'time':         (('s', 'ms', 'micros'),
                      (1, 1.0e-3, 1.0e-6),
@@ -35,8 +35,8 @@ ALLOWED_UNITS = {
     'vol':          (('m3', 'cm3', 'mm3'),
                      (1, 1.0e-6, 1.0e-9),
                      'Volume'),
-    'abs_coeff':    (('cm-1atm-1',),
-                     (1,),
+    'abs_coeff':    (('m-1atm-1', 'cm-1atm-1',),
+                     (1, 1.0e2),
                      'Absorption coefficient'),
     'abs':          (('%', 'fraction'),
                      (1, 100),
@@ -46,7 +46,13 @@ ALLOWED_UNITS = {
                      'dP/dt'),
     'mdot':         (('kg/s', 'g/s'),
                      (1, 1.0e-3,),
-                     'Mass flow rate')
+                     'Mass flow rate'),
+    'velocity':     (('cm/s', 'm/s'),
+                     (1, 1.0e2),
+                     'Velocity'),
+    'phi':          (('',),
+                     (1,),
+                     'Equivalence ratio')
 }
 
 # Mappings for alternate names (keys) to their physical quantities (values)
@@ -56,7 +62,11 @@ ALTERNATE_NAMES = {
     'res_time':     'time',
     'idt':          'time',
     'timestep':     'time',
+    'lfs':          'velocity',
 }
+
+# Params in the 'plot' field of the 'info' sheet that should be in list form
+LIST_PARAMS = ('idt_targ', 'idt_method', 'wavelength', 'active_spc')
 
 # Number of columns in the experimental sheets
 NUM_EXP_CLMS = 7
@@ -97,18 +107,15 @@ def load_exp_set(exp_filename):
 
     exp_set['exp_objs'] = exp_objs
 
-    # Run some checks
-    exp_checker.chk_exp_set(exp_set)
+    # Run some checks. Checks return objects since minor changes can be made
+    exp_set = exp_checker.chk_exp_set(exp_set)
     for exp_obj in exp_objs:  # important to check exp_objs AFTER exp_set
-        exp_checker.chk_exp_obj(exp_obj, exp_set)
+        _ = exp_checker.chk_exp_obj(exp_obj, exp_set)
 
     # Create the exp_data and xdata arrays
     exp_ydata, exp_xdata = get_exp_data(exp_set)
     exp_set['overall']['exp_ydata'] = exp_ydata
     exp_set['overall']['exp_xdata'] = exp_xdata
-
-    # print(exp_ydata)
-    # print(exp_xdata)
 
     return exp_set
 
@@ -124,7 +131,7 @@ def read_info_sheet(df):
 
     assert df.shape[1] >= 4, f'"info" sheets must have at least 4 columns'
     exp_set = {'overall': {}, 'plot': {}, 'plot_format': {}, 'mix': {},
-               'spc': {}, 'exp_objs': []}
+               'spc': {}, 'sim_opts': {}, 'exp_objs': []}
     for _, row in df.iterrows():
         assert len(row) >= 4, f'The row {list(row)} has less than 4 entries'
         group, param, raw_val, units = row[0], row[1], row[2], row[3]
@@ -135,9 +142,21 @@ def read_info_sheet(df):
         if group == 'overall':
             exp_set[group][param] = raw_val  # no conversions required
         elif group == 'mix':
-            conv_val = convert_units(raw_val, 'conc', units)
-            exp_set['mix'][param] = conv_val  # param is the spc name
+            no_units = ('fuel', 'fuel_ratios', 'oxid', 'oxid_ratios')
+            if param not in no_units:
+                conv_val = convert_units(raw_val, 'conc', units)
+            else:  # if in the special list of no_units
+                if param in ('fuel', 'oxid'):
+                    conv_val = [entry.strip() for entry in raw_val.split(',')]
+                else: # 'fuel_ratios' or 'oxid_ratios'
+                    if isinstance(raw_val, str):
+                        conv_val = [float(ent) for ent in raw_val.split(',')]
+                    else:  # if a float (i.e., single value), change to list
+                        conv_val = [raw_val]
+            exp_set['mix'][param] = conv_val  # param is spc name or 'fuel', etc
         elif group == 'spc':
+            assert param not in exp_set[group], (
+                f'The species {param} is defined more than once!')
             exp_set[group][param] = read_spc_row(row)
         elif group == 'plot':
             # If on the plotting variable info
@@ -153,9 +172,8 @@ def read_info_sheet(df):
             # If there is a comma in the input field, split the str around it
             if isinstance(conv_val, str) and ',' in conv_val:
                 conv_val = [entry.strip() for entry in conv_val.split(',')]
-            # If there was no comma, convert the single value from str to lst
-            # for a few special parameters
-            elif param in ('idt_target', 'idt_method', 'wavelength'):
+            # If no comma and in the LIST_PARAMS, convert str to lst
+            elif param in LIST_PARAMS:
                 conv_val = [conv_val]
             exp_set[group][param] = conv_val  # note: don't use fake_param
         elif group == 'plot_format':
@@ -163,7 +181,7 @@ def read_info_sheet(df):
                 conv_val = [float(entry) for entry in raw_val.split(',')]
             elif param == 'rows_cols':
                 conv_val = [int(entry) for entry in raw_val.split(',')]
-            elif param == 'omit_targets':
+            elif param == 'omit_targs':
                 conv_val = [entry.strip() for entry in raw_val.split(',')]
             elif param == 'plot_points':
                 if raw_val == 'yes':
@@ -175,8 +193,13 @@ def read_info_sheet(df):
             else:
                 conv_val = raw_val
             exp_set[group][param] = conv_val
+        elif group == 'sim_opts':
+            exp_set[group][param] = raw_val
         elif group == 'ignore_row':
             pass
+
+    # Call the fix_mix function to make some changes to the mixture if needed
+    # exp_set['mix'] = fix_mix(exp_set['mix'])
 
     return exp_set
 
@@ -236,6 +259,9 @@ def read_exp_sheet(df, exp_set):
                         exp_obj[group][param][observable_num] = {}
                     exp_obj[group][param][observable_num][spc] = val_tuple
 
+    # Call the fix_mix function to make some changes to the mixture if needed
+    # exp_obj['mix'] = fix_mix(exp_obj['mix'])
+
     return exp_obj
 
 
@@ -251,14 +277,14 @@ def read_row(row, exp_set):
         :type exp_set:
         :return val_tuple: a tuple describing the value, the lower and upper
             bounds on the value, and the bound type ('percent' or 'value'). Note
-            that val can either be a float or a Numpy array of shape (num_vals,)
+            that val can either be a float or a Numpy array of shape (nvals,)
         :rtype: tuple (val, low_bnd, upp_bnd, bnd_type)
     """
 
     # Read data
     param, units = row[1], row[3]
     low_bnd, upp_bnd, bnd_type = row[4], row[5], row[6],
-    all_spcs = exp_set['spc'].keys()  # used to check spcs names
+    all_spcs = exp_set['spc'].keys()  # used later to check spcs names
 
     # Check for extra entries in the parameter column, indicated by comma(s)
     extra_params = []
@@ -271,8 +297,8 @@ def read_row(row, exp_set):
     # If the "value" column is blank, assume the row is a time series
     chkd_val_clmn = util.chk_entry(row[2])
     if chkd_val_clmn is None:
-        num_points = len(row) - NUM_EXP_CLMS  # num of time-resolved datapoints
-        val = np.zeros(num_points)
+        npoints = len(row) - NUM_EXP_CLMS  # num of time-resolved datapoints
+        val = np.zeros(npoints)
         for idx, item in enumerate(row[NUM_EXP_CLMS:]):
             val[idx] = item
     else:
@@ -281,6 +307,13 @@ def read_row(row, exp_set):
     # Convert the units of the value(s)
     if param in all_spcs:  # if param is a spcs name
         val = convert_units(val, 'conc', units)
+    elif param in ('fuel', 'oxid'):
+        val = [entry.strip() for entry in val.split(',')]
+    elif param in ('fuel_ratios', 'oxid_ratios'):
+        if isinstance(val, str):
+            val = [float(entry) for entry in val.split(',')]
+        else:  # if a float (i.e., a single value), convert to list
+            val = [val]
     else:
         val = convert_units(val, param, units)
         
@@ -332,7 +365,7 @@ def convert_units(val, quant, units):
             ALTERNATE_NAMES.
 
         :param val: the value of some physical dimension (e.g., 1.04)
-        :type val: float or Numpy of shape (num_vals,)
+        :type val: float or Numpy of shape (nvals,)
         :param quant: the physical quantity that is quantified by val
             (e.g., 'pressure')
         :type quant: str
@@ -346,7 +379,7 @@ def convert_units(val, quant, units):
     chkd_entry = util.chk_entry(units)
     if chkd_entry is None:
         # Check if the quantity should have units assigned
-        if val != 'bal':  # exception: 'bal' is a 'conc' but requires no units
+        if val != 'bal' and quant != 'phi':  # 'bal' = 'conc' but needs no units
             assert quant not in ALLOWED_UNITS.keys() and quant not in \
                 ALTERNATE_NAMES.keys(), f"The quantity '{quant}' requires units"
         conv_val = val  # no conversion if units are blank or '-'
@@ -410,18 +443,16 @@ def get_exp_data(exp_set):
             if unique_xdatum in exp_xdata:
                 exp_idx = np.where(exp_xdata == unique_xdatum)
                 interp_ydata[unique_idx] = sing_ydata[exp_idx]
-            # Otherwise, just store as NaN
-            else:
+            else:  # otherwise, just store as NaN
                 interp_ydata[unique_idx] = np.nan
 
         return interp_ydata
 
     # Load some initial parameters
-    ndims = util.get_exp_dims(exp_set)
     meas_type = exp_set['overall']['meas_type']
     plot_var = exp_set['plot']['variable']  # the variable for the exp_set
     exp_objs = exp_set['exp_objs']
-    num_conds = len(exp_objs)
+    nconds = len(exp_objs)
 
     # Get exp_xdata and exp_ydata based on measurement type
     if meas_type == 'outlet':
@@ -429,11 +460,10 @@ def get_exp_data(exp_set):
         exp_xdata = np.ndarray(len(exp_objs))
         for cond_idx, exp_obj in enumerate(exp_objs):
             exp_xdata[cond_idx] = exp_obj['conds'][plot_var][0]
-
         # Get the ydata
         spcs = exp_set['spc'].keys()
-        num_targets = len(spcs)
-        exp_ydata = np.ndarray((num_conds, num_targets))
+        ntargs = len(spcs)
+        exp_ydata = np.ndarray((nconds, ntargs))
         for cond_idx, exp_obj in enumerate(exp_objs):
             result = exp_obj['result']
             for spc_idx, spc in enumerate(spcs):
@@ -452,13 +482,12 @@ def get_exp_data(exp_set):
         exp_xdata = np.ndarray(len(exp_objs))
         for cond_idx, exp_obj in enumerate(exp_objs):
             exp_xdata[cond_idx] = exp_obj['conds'][plot_var][0]
-
         # Get the ydata
-        num_targets = exp_checker.get_num_idts(exp_set)
-        exp_ydata = np.ndarray((num_conds, num_targets))
+        ntargs = exp_checker.get_nidts(exp_set)
+        exp_ydata = np.ndarray((nconds, ntargs))
         for cond_idx, exp_obj in enumerate(exp_objs):
             result = exp_obj['result']['idt']
-            for idt_idx in range(num_targets):
+            for idt_idx in range(ntargs):
                 if idt_idx + 1 in result:  # +1 b/c idt #s in Excel are 1-index
                     exp_ydata[cond_idx, idt_idx] = result[idt_idx + 1][0]
                 else:
@@ -467,12 +496,11 @@ def get_exp_data(exp_set):
     elif meas_type == 'conc':
         # Get the xdata
         exp_xdata = get_unique_times(exp_set)
-        num_times = len(exp_xdata)
-
+        ntimes = len(exp_xdata)
         # Get the ydata
         spcs = exp_set['spc'].keys()
-        num_targets = len(spcs)
-        exp_ydata = np.ndarray((num_conds, num_targets, num_times))
+        ntargs = len(spcs)
+        exp_ydata = np.ndarray((nconds, ntargs, ntimes))
         for cond_idx, exp_obj in enumerate(exp_objs):
             result = exp_obj['result']
             exp_times = result['time'][0]
@@ -483,9 +511,77 @@ def get_exp_data(exp_set):
                         sing_spc, exp_times, exp_xdata)
                 else:
                     exp_ydata[cond_idx, spc_idx] = np.nan
+
+    elif meas_type == 'abs':
+        # Get the xdata
+        exp_xdata = get_unique_times(exp_set)
+        ntimes = len(exp_xdata)
+        # Get the ydata
+        nwvlens = len(exp_set['plot']['wavelength'])
+        nspcs = len(exp_set['plot']['active_spc'])
+        ntargs = nwvlens * (nspcs + 1)  # +1: total abs for each wvlen
+        exp_ydata = np.ndarray((nconds, ntargs, ntimes))
+        exp_ydata[:] = np.nan  # set all to NaN by default
+        for cond_idx in range(nconds):
+            for wvlen_idx in range(nwvlens):
+                total_idx = (wvlen_idx + 1) * (nspcs + 1) - 1
+                total = exp_objs[cond_idx]['result']['abs'][wvlen_idx + 1][0]
+                exp_ydata[cond_idx, total_idx] = total  # only total is not NaN
+
+    elif meas_type == 'lfs':
+        # Get the xdata
+        exp_xdata = np.ndarray(len(exp_objs))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            if plot_var == 'phi':
+                exp_xdata[cond_idx] = exp_obj['mix'][plot_var][0]
+            else:
+                exp_xdata[cond_idx] = exp_obj['conds'][plot_var][0]
+        # Get the ydata
+        ntargs = 1
+        exp_ydata = np.ndarray((nconds, ntargs))
+        for cond_idx, exp_obj in enumerate(exp_objs):
+            result = exp_obj['result']
+            exp_ydata[cond_idx] = result['lfs'][0]
     else:
         raise NotImplementedError(f"meas_type '{meas_type}' is not working")
 
     exp_xdata = np.array(exp_xdata)  # convert list to numpy array
 
     return exp_ydata, exp_xdata
+
+
+def fix_mix(mix):
+    """ Fixes the mixture when it's defined in terms of ratios
+    """
+    print('inisde fix_mix, mix:\n', mix)
+
+    if 'fuel' in mix or 'oxid' in mix:
+        assert 'fuel' in mix and 'oxid' in mix, (
+            f"Both fuel and oxid must be included")
+        fixed_mix = {}
+        # Fix the fuel entry
+        raw_fuel = mix['fuel']
+        if isinstance(raw_fuel, tuple):
+            raw_fuel = raw_fuel[0]  # remove uncertainty info if needed
+        fixed_mix['fuel'] = [entry.strip() for entry in mix['fuel'].split(',')]
+        if len(fixed_mix['fuel']) > 1:
+            assert 'fuel_ratios' in mix, (
+                f"Mixes with multiple fuels require the 'fuel_ratios' field")
+            fixed_mix['fuel_ratios'] = [float(entry) for entry in
+                                        mix['fuel'].split(',')]
+            assert len(fixed_mix['fuel']) == len(fixed_mix['fuel_ratios']), (
+                f"Number of fuels and fuel ratios should be equal")
+        # Fix the oxid entry
+        fixed_mix['oxid'] = [entry.strip() for entry in mix['oxid'].split(',')]
+        if len(fixed_mix['oxid']) > 1:
+            assert 'oxid_ratios' in mix, (
+                f"Mixes with multiple oxids require the 'oxid_ratios' field")
+            fixed_mix['oxid_ratios'] = [float(entry) for entry in
+                                        mix['oxid_ratios'].split(',')]
+            assert len(fixed_mix['oxid']) == len(fixed_mix['oxid_ratios']), (
+                f"Number of oxids and oxid ratios should be equal")
+
+    else:
+        fixed_mix = mix
+
+    return fixed_mix

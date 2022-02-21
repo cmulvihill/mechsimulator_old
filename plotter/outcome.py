@@ -9,20 +9,22 @@ from mechsimulator.parser.exp import ALLOWED_UNITS
 COLORS = ['Red', 'Blue', 'Green', 'Black']
 LINESTYLES = ['-', '--', '-.', ':']
 REAC = {
-    'st': 'ST',
-    'rcm': 'RCM',
-    'jsr': 'JSR',
-    'pfr': 'PFR',
-    'const_t_p': 'Const. TP',
+    'st':           'ST',
+    'rcm':          'RCM',
+    'jsr':          'JSR',
+    'pfr':          'PFR',
+    'const_t_p':    'Const. TP',
+    'free_flame':   'Free flame',
 }
 MEAS = {
-    'abs': 'Absorption',
-    'emis': 'Emission',
-    'conc': 'Concentration',
-    'ion': 'Ion',
+    'abs':      'Absorption',
+    'emis':     'Emission',
+    'conc':     'Concentration',
+    'ion':      'Ion',
     'pressure': 'Pressure',
-    'idt': 'IDT',
-    'outlet': 'Outlet',
+    'idt':      'IDT',
+    'outlet':   'Outlet',
+    'lfs':      'Flame speed'
 }
 DEFAULT_OPTS = {
     'plot_points':  False,
@@ -30,7 +32,7 @@ DEFAULT_OPTS = {
     'xlim':         None,
     'yunit':        None,
     'ylim':         None,
-    'omit_targets': None,
+    'omit_targs':   None,
     'rows_cols':    (4, 3),
     'marker_size':  15,
     'group_by':     'target',
@@ -38,62 +40,54 @@ DEFAULT_OPTS = {
     'xscale':       'linear',
     'yscale':       'linear',
 }
-POINT_MEAS_TYPES = ('outlet', 'idt',)
+POINT_MEAS_TYPES = ('outlet', 'idt', 'lfs')
 
 
-# NOTE TO SELF: might delete this function entirely at some point in favor of
-# the external call from plotter.main
-def mult_sets(set_ydata_lst, set_xdata_lst, exp_sets, conds_source_lst,
-              mech_names=None):
-    pass
-
-
-def single_set(set_ydata, set_xdata, exp_set, conds_source, mech_names=None):
+def single_set(set_ydata, set_xdata, exp_set, conds_src, mech_opts_lst=None):
     """ Plots results from a single set (i.e., any number of mechanisms). Also
         plots the experimental data if there are any
 
         :param set_ydata: the simulation results for a single set (i.e., for
-            multiple mechanisms); shape=(num_mechs, num_conds, num_targets,
-            num_times) (the last dimension is omitted for some meas_types)
+            multiple mechanisms); shape=(nmechs, nconds, ntargs,
+            ntimes) (the last dimension is omitted for some meas_types)
         :type set_ydata: numpy.ndarray
         :param set_xdata: the uniform x data used for all mechanisms; 1-D
         :type set_xdata: numpy.ndarray
         :param exp_set: exp_set object
         :type exp_set: dict
-        :param conds_source: the source of the conditions; 'plot' or 'exps'
-        :type conds_source: str
-        :param mech_names: mechanism nicknames
-        :type mech_names: list
+        :param conds_src: the source of the conditions; 'plot' or 'exps'
+        :type conds_src: str
         :return figs_axes: list of figures with plots [(fig1, ax1), ...]
         :rtype: list
     """
 
     # Initialize some variables
-    opts = read_options(exp_set)
-    num_mechs = len(set_ydata)
-    mech_names = mech_names or [f'mech {idx + 1}' for idx in range(num_mechs)]
+    set_frmt = _set_frmt(exp_set)
+    nmechs = len(set_ydata)
 
     # Build the empty figures and axes
-    figs_axes = build_figs_and_axes(exp_set, mech_names, opts, conds_source)
+    figs_axes = build_figs_axes(exp_set, set_frmt, conds_src, mech_opts_lst,
+                                nmechs)
 
     # Loop over each mechanism and plot
-    for mech_idx in range(num_mechs):
+    mech_xdata = set_xdata  # xdata is same for all mechs
+    for mech_idx in range(nmechs):
         mech_ydata = set_ydata[mech_idx]
-        mech_frmt = get_mech_frmt(exp_set, opts, mech_names, conds_source,
-                                  mech_idx=mech_idx)
-        # Note: xdata is same for all mechs, so using set_xdata
-        figs_axes = single_mech(mech_ydata, set_xdata, figs_axes, mech_frmt)
+        mech_frmt = _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=mech_idx)
+        figs_axes = single_mech(mech_ydata, mech_xdata, figs_axes, mech_frmt,
+                                exp_set, mech_idx=mech_idx)
 
-    # Add experimental data if present
+    # Plot experimental data if present
     exp_ydata = exp_set['overall']['exp_ydata']
     exp_xdata = exp_set['overall']['exp_xdata']
-    mech_frmt = get_mech_frmt(exp_set, opts, mech_names, conds_source)
-    figs_axes = single_mech(exp_ydata, exp_xdata, figs_axes, mech_frmt)
+    mech_frmt = _mech_frmt(exp_set, set_frmt, conds_src)
+    figs_axes = single_mech(exp_ydata, exp_xdata, figs_axes, mech_frmt, exp_set)
 
     return figs_axes
 
 
-def single_mech(mech_ydata, mech_xdata, figs_axes, mech_frmt):
+def single_mech(mech_ydata, mech_xdata, figs_axes, mech_frmt, exp_set,
+                mech_idx=None):
     """ Plots the results of a single mechanism on an existing set of figures
 
         :param mech_ydata: either the simulation results for a single mech or
@@ -109,90 +103,220 @@ def single_mech(mech_ydata, mech_xdata, figs_axes, mech_frmt):
         :rtype: list
     """
 
-    # Load/check some things
-    ndims = np.ndim(mech_ydata)
-    assert ndims in (2, 3), (
-        f"'mech_ydata' should have 2 or 3 dimensions, not {ndims}")
-    nrows, ncols = mech_frmt['rows_cols']
-    group_by = mech_frmt['group_by']
-    label = mech_frmt['label']
-    color = mech_frmt['color']
-    xlim = mech_frmt['xlim']
-    ylim = mech_frmt['ylim']
-    xconv = mech_frmt['xconv']
-    yconv = mech_frmt['yconv']
-    xscale = mech_frmt['xscale']
-    yscale = mech_frmt['yscale']
-    linestyle = mech_frmt['linestyle']
-    marker = mech_frmt['marker']
-
-    # Check for the case of inverse temperature
-    if xconv == 'inv':
-        mech_xdata = 1000 / mech_xdata
-        xconv = 1
-
-    # Get numbers of conditions and targets
-    if ndims == 3:
-        num_conds, num_targets, _ = np.shape(mech_ydata)
-    else:  # ndims = 2
-        num_conds, num_targets = np.shape(mech_ydata)
-
-    # Get information on how the plots are to be organized
-    if ndims == 3:
-        if group_by == 'cond':
-            num_grps = num_conds  # number of plotting groups
-            num_plts = num_targets  # number of plots per group
-        else:  # 'target'
-            num_grps = num_targets  # flipped relative to above
-            num_plts = num_conds
-    else:  # ndims = 2
-        num_grps = 1  # for ndims = 2, all targets are plotted as one group
-        num_plts = num_targets
-    plts_per_pg = nrows * ncols  # maximum number of plots per page
-    pgs_per_grp = int(num_plts / plts_per_pg) + 1  # number of pages per group
+    # Get info on how to organize the plots
+    ngrps, nplts, plts_per_pg, pgs_per_grp = organize_set(
+        mech_ydata, mech_frmt, exp_set)
 
     # Loop over each group of pages
-    for grp_idx in range(num_grps):
+    for grp_idx in range(ngrps):
         # Loop over pages in each group
         for pg_idx in range(pgs_per_grp):
             fig_idx = grp_idx * pgs_per_grp + pg_idx
-            fig, axs = figs_axes[fig_idx]
+            _, axs = figs_axes[fig_idx]
             # Loop over plots on each page
             for plt_idx_pg in range(plts_per_pg):
                 plt_idx_grp = pg_idx * plts_per_pg + plt_idx_pg  # overall idx
-                if plt_idx_grp < num_plts:
-                    if ndims == 3:
-                        if group_by == 'cond':
-                            ydata = mech_ydata[grp_idx, plt_idx_grp]
-                        else:  # 'target'
-                            ydata = mech_ydata[plt_idx_grp, grp_idx]
-                    else:  # ndims = 2
-                        ydata = mech_ydata[:, plt_idx_pg]
-                    current_ax = axs[plt_idx_pg]
-                    current_ax.plot(mech_xdata * xconv, ydata * yconv,
-                                    label=label, color=color,
-                                    linestyle=linestyle, marker=marker)
-                    if xlim is not None:
-                        current_ax.set_xlim(xlim)
-                    if ylim is not None:
-                        current_ax.set_ylim(ylim)
-                    current_ax.set_xscale(xscale)
-                    current_ax.set_yscale(yscale)
+                if plt_idx_grp < nplts:
+                    plt_ydata = get_plt_ydata(mech_ydata, mech_frmt, grp_idx,
+                                              plt_idx_grp, plt_idx_pg, exp_set)
+                    single_plot(plt_ydata, mech_xdata, axs[plt_idx_pg],
+                                mech_frmt, plt_idx_pg, exp_set, mech_idx)
 
     return figs_axes
 
 
-def build_figs_and_axes(exp_set, mech_names, opts, conds_source):
-    """ Initializes a set of figures with empty axes
+def single_plot(plt_ydata, mech_xdata, current_ax, mech_frmt, plt_idx_pg,
+                exp_set, mech_idx):
+
+    def _nlines(plt_ydata):
+        """ Gets the number of lines on a single plot
+        """
+        ndims = np.ndim(plt_ydata)
+        if ndims == 2:
+            nlines = np.shape(plt_ydata)[0]
+        else:  # ndims = 1
+            nlines = 1
+
+        return nlines
+
+    # Load info; inefficient to load for every plot, but looks cleaner
+    xlim = mech_frmt['xlim']
+    ylim = mech_frmt['ylim']
+    xscale = mech_frmt['xscale']
+    yscale = mech_frmt['yscale']
+    meas_type = exp_set['overall']['meas_type']
+
+    # If on abs, flip order so total abs is first (i.e., the solid line)
+    if meas_type == 'abs':
+        plt_ydata = np.flip(plt_ydata, 0)
+
+    # Loop over all lines and plot each
+    nlines = _nlines(plt_ydata)
+    labels = _labels(nlines, mech_idx, exp_set)
+    for line_idx in range(nlines):
+        single_line(plt_ydata, mech_xdata, line_idx, current_ax, mech_frmt,
+                    labels)
+
+    # Do some formatting on the entire plot
+    if xlim is not None:
+        current_ax.set_xlim(xlim)
+    if ylim is not None:
+        current_ax.set_ylim(ylim)
+    current_ax.set_xscale(xscale)
+    current_ax.set_yscale(yscale)
+    if plt_idx_pg == 0 and nlines > 1:  # add legend on 1st plot if mult. lines
+        current_ax.legend()
+
+
+def single_line(plt_ydata, mech_xdata, line_idx, current_ax, mech_frmt, labels):
+    """ Plots a single line on a plot
+
+        Note: it's called "plt_ydata" because it might contain data for multiple
+        lines (hence the line_idx input)
+    """
+
+    # Load some information
+    xconv = mech_frmt['xconv']
+    yconv = mech_frmt['yconv']
+    color = mech_frmt['color']
+    marker = mech_frmt['marker']
+    if xconv == 'inv':  # fix the case of inverse temperature
+        mech_xdata = 1000 / mech_xdata
+        xconv = 1
+
+    # Get ydata for the current line
+    ndims = np.ndim(plt_ydata)
+    if ndims == 2:
+        line_ydata = plt_ydata[line_idx]
+    else:  # ndims = 1
+        line_ydata = plt_ydata
+
+    # Get linestyle based on marker formatting and line_idx
+    if marker == '':  # if plotting a line
+        linestyle = LINESTYLES[line_idx]
+    else:  # if plotting points
+        linestyle = ''
+
+    # Get the line label and plot
+    label = labels[line_idx]
+    current_ax.plot(mech_xdata * xconv, line_ydata * yconv, label=label,
+                    color=color, linestyle=linestyle, marker=marker)
+
+
+def _labels(nlines, mech_idx, exp_set):
+    """ Gets the labels for all the lines on a single plot
+    """
+
+    meas_type = exp_set['overall']['meas_type']
+    if nlines == 1:
+        labels = [None]
+    else:
+        if meas_type == 'abs':
+            if mech_idx is None:  # if on experimental data
+                labels = ['Exp., total'] + [None] * (nlines - 1)
+            else:
+                active_spcs = copy.copy(exp_set['plot']['active_spc'])
+                active_spcs.reverse()
+                labels = ['Total'] + active_spcs
+        else:
+            print(f'Labels not implemented for meas_type {meas_type}')
+            labels = [None] * nlines
+
+    return labels
+
+
+def get_plt_ydata(mech_ydata, mech_frmt, grp_idx, plt_idx_grp, plt_idx_pg,
+                  exp_set):
+    """ Get the ydata to plot for a single plot
+    
+        :param mech_ydata: 
+        :param grp_idx:
+        :param plt_idx_grp: 
+        :param plt_idx_pg: 
+        :return: 
+    """
+
+    def get_idxs(grp_idx, plt_idx_grp, exp_set, group_by):
+        """ Gets indices for obtaining the ydata
+        """
+        meas_type = exp_set['overall']['meas_type']
+        if meas_type == 'abs':
+            nspcs = len(exp_set['plot']['active_spc'])
+            if group_by == 'cond':
+                cond_idx, wvlen_idx = grp_idx, plt_idx_grp
+            else:  # 'target'
+                cond_idx, wvlen_idx = plt_idx_grp, grp_idx
+            start_idx = wvlen_idx * (nspcs + 1)  # +1 for total abs
+            end_idx = start_idx + nspcs + 1
+        else:
+            if group_by == 'cond':
+                cond_idx, start_idx = grp_idx, plt_idx_grp
+            else:  # 'target'
+                cond_idx, start_idx = plt_idx_grp, grp_idx
+            end_idx = start_idx + 1
+
+        return cond_idx, start_idx, end_idx
+
+    group_by = mech_frmt['group_by']
+    ndims = np.ndim(mech_ydata)
+    if ndims == 3:
+        cond_idx, start_idx, end_idx = get_idxs(grp_idx, plt_idx_grp, exp_set,
+                                                group_by)
+        plt_ydata = mech_ydata[cond_idx, start_idx:end_idx]
+    else:  # ndims = 2
+        plt_ydata = mech_ydata[:, plt_idx_pg]
+
+    return plt_ydata
+
+
+def organize_set(mech_ydata, mech_frmt, exp_set):
+    """ Gets information on how to organize plots for the set
+    """
+
+    def _ngrps_nplts(mech_ydata, exp_set):
+        """ Gets number of groups and number of plots per group
+        """
+        ndims = np.ndim(mech_ydata)
+        group_by = mech_frmt['group_by']
+        meas_type = exp_set['overall']['meas_type']
+        # Depends on number of dimensions
+        if ndims == 3:
+            # Get the numbers of conditions and targets
+            if meas_type == 'abs':
+                nconds, _, _ = np.shape(mech_ydata)
+                ntargs = len(exp_set['plot']['wavelength'])
+            else:
+                nconds, ntargs, _ = np.shape(mech_ydata)
+            # Get the number of groups and plots
+            if group_by == 'cond':
+                ngrps, nplts = nconds, ntargs
+            else:  # 'target'
+                ngrps, nplts = ntargs, nconds  # flipped
+        else:  # ndims = 2
+            _, ntargs = np.shape(mech_ydata)
+            ngrps, nplts = 1, ntargs  # all targets are treated as one group
+
+        return ngrps, nplts
+
+    ngrps, nplts = _ngrps_nplts(mech_ydata, exp_set)
+    nrows, ncols = mech_frmt['rows_cols']
+    plts_per_pg = nrows * ncols  # maximum number of plots per page
+    pgs_per_grp = int(nplts / plts_per_pg) + 1  # number of pages per group
+
+    return ngrps, nplts, plts_per_pg, pgs_per_grp
+
+
+def build_figs_axes(exp_set, set_frmt, conds_src, mech_opts_lst, nmechs):
+    """ Initializes figures with empty axes
 
         :param exp_set: exp_set object
         :type exp_set: dict
         :param mech_names: mechanism nicknames
         :type mech_names: list
-        :param opts: plot options
-        :type opts: dict
-        :param conds_source: the source of the conditions; 'plot' or 'exps'
-        :type conds_source: str
+        :param set_frmt: plot options
+        :type set_frmt: dict
+        :param conds_src: the source of the conditions; 'plot' or 'exps'
+        :type conds_src: str
         :return figs_axes: list of figures with plots [(fig1, ax1), ...]
         :rtype: list
     """
@@ -211,15 +335,15 @@ def build_figs_and_axes(exp_set, mech_names, opts, conds_source):
         """
 
         # Load/calculate various data
-        nrows, ncols = opts['rows_cols']
+        nrows, ncols = set_frmt['rows_cols']
         plts_per_pg = nrows * ncols
-        num_grps = len(grp_titles)
+        ngrps = len(grp_titles)
         plts_per_grp = len(plt_titles)
         pgs_per_grp = int(plts_per_grp / plts_per_pg) + 1  # int rounds down
 
         # Loop over each group and build the figures and axes
         figs_axes = []
-        for grp_idx in range(num_grps):
+        for grp_idx in range(ngrps):
             # Loop over each page within the group
             for pg_idx in range(pgs_per_grp):
                 fig = plt.figure(figsize=(8.5, 11))
@@ -248,21 +372,24 @@ def build_figs_and_axes(exp_set, mech_names, opts, conds_source):
         return figs_axes
 
     # Load some information
-    group_by = opts['group_by']
-    xunit = opts['xunit']
-    yunit = opts['yunit']
+    group_by = set_frmt['group_by']
+    xunit = set_frmt['xunit']
+    yunit = set_frmt['yunit']
+
+    # Get the mech_names from mech_opts_lst
+    mech_names = util._mech_names(mech_opts_lst, nmechs)
 
     # Get the titles and axis labels
-    cond_titles, xlabel, _ = util.get_cond_titles(exp_set, conds_source,
+    cond_titles, xlabel, _ = util.get_cond_titles(exp_set, conds_src,
                                                   xunit=xunit)
-    target_titles, ylabel, _ = util.get_target_titles(exp_set, yunit=yunit)
+    targ_titles, ylabel, _ = util.get_targ_titles(exp_set, yunit=yunit)
 
     # Set the titles according to the grouping method
     if group_by == 'cond':
         grp_titles = cond_titles
-        plt_titles = target_titles
+        plt_titles = targ_titles
     else:  # 'target'
-        grp_titles = target_titles
+        grp_titles = targ_titles
         plt_titles = cond_titles
 
     # Create the figures and axes
@@ -280,7 +407,7 @@ def add_headers(exp_set, mech_names):
     header_y_positions = [0.9, 0.92]
     for mech_idx, mech_name in enumerate(mech_names):
         header = f'{COLORS[mech_idx % 4]} lines: {mech_name}'
-        if mech_idx < 3:
+        if mech_idx < 3:  # three mechs per row
             y_idx = 0
         else:
             y_idx = 1
@@ -308,51 +435,48 @@ def add_footers(xlabel, ylabel):
     plt.figtext(0.11, 0.06, footnotes, fontsize=10, va="top", ha="left")
 
 
-def read_options(exp_set):
-    """ Reads the plot options (i.e., plot_format) input from an exp_set; adds
-        default values that are missing
+def _set_frmt(exp_set):
+    """ Gets plot formatting directions for a set
 
         :param exp_set: exp_set object
         :type exp_set: dict
-        :return opts: plot options dictionary
+        :return set_frmt: formatting directions for entire set
         :rtype: dict
     """
 
     meas_type = exp_set['overall']['meas_type']
-    raw_opts = exp_set['plot_format']
+    raw_frmt = exp_set['plot_format']
 
-    # If options doesn't exist, just use the default dictionary
-    if raw_opts is {}:
-        opts = copy.deepcopy(DEFAULT_OPTS)
-    # If options does exist, fill in any missing values with defaults
+    # If the set_frmt was empty, just use the default dictionary
+    if raw_frmt is {}:
+        set_frmt = copy.deepcopy(DEFAULT_OPTS)
+    # If the set_frmt was not empty, fill in any missing values with defaults
     else:
-        opts = copy.deepcopy(raw_opts)
+        set_frmt = copy.deepcopy(raw_frmt)
         for parameter, value in DEFAULT_OPTS.items():
-            if parameter not in opts:
+            if parameter not in set_frmt:
                 if meas_type == 'idt' and parameter == 'yscale':
-                    opts[parameter] = 'log'  # the default for idt
+                    set_frmt[parameter] = 'log'  # the default for idt
                 else:
-                    opts[parameter] = value
+                    set_frmt[parameter] = value
 
     # If the meas_type should be plotted as points, set that
     if meas_type in POINT_MEAS_TYPES:
-        opts['plot_points'] = True
-        opts['group_by'] = 'cond'
+        set_frmt['plot_points'] = True
+        set_frmt['group_by'] = 'cond'
 
-    return opts
+    return set_frmt
 
 
-def get_mech_frmt(exp_set, opts, mech_names, conds_source, mech_idx=None):
-    """ Gets plot formatting info for a single mech (or the experimental data)
+def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
+    """ Gets plot formatting directions for one mech (or the experimental data)
 
         :param exp_set: exp_set object
         :type exp_set: dict
-        :param opts: plot options
-        :type opts: dict
-        :param mech_names: mechanism nicknames
-        :type mech_names: list
-        :param conds_source: the source of the conditions; 'plot' or 'exps'
-        :type conds_source: str
+        :param set_frmt: formatting directions for entire set
+        :type set_frmt: dict
+        :param conds_src: the source of the conditions; 'plot' or 'exps'
+        :type conds_src: str
         :param mech_idx: index of the current mechanism, or None if experiment
         :type mech_idx: int
         :return mech_frmt: formatting instructions for a single mech (or exps)
@@ -378,39 +502,34 @@ def get_mech_frmt(exp_set, opts, mech_names, conds_source, mech_idx=None):
         return conv_factor
 
     # Initialize the dict with some general information
-    mech_frmt = {'rows_cols': opts['rows_cols'],
-                 'group_by': opts['group_by'],
-                 'xlim': opts['xlim'],
-                 'ylim': opts['ylim'],
-                 'xscale': opts['xscale'],
-                 'yscale': opts['yscale']}
+    mech_frmt = {'rows_cols': set_frmt['rows_cols'],
+                 'group_by': set_frmt['group_by'],
+                 'xlim': set_frmt['xlim'],
+                 'ylim': set_frmt['ylim'],
+                 'xscale': set_frmt['xscale'],
+                 'yscale': set_frmt['yscale']}
 
     # Get the conversion factors
-    xunit = opts['xunit']
-    yunit = opts['yunit']
-    _, _, xquant = util.get_cond_titles(exp_set, conds_source)
-    _, _, yquant = util.get_target_titles(exp_set)
+    xunit = set_frmt['xunit']
+    yunit = set_frmt['yunit']
+    _, _, xquant = util.get_cond_titles(exp_set, conds_src)
+    _, _, yquant = util.get_targ_titles(exp_set)
     mech_frmt['xconv'] = get_conv_factors(xunit, xquant)
     mech_frmt['yconv'] = get_conv_factors(yunit, yquant)
     if exp_set['overall']['meas_type'] == 'idt':
         mech_frmt['xconv'] = 'inv'  # so that inverse temp can be plotted
 
-    # Get information that depends on whether a simulation or an experiment
+    # Get color and marker; depends on whether or simulation or experiment
     if mech_idx is not None:  # if mech_idx exists, it's a simulation
-        mech_frmt['label'] = mech_names[mech_idx]
         mech_frmt['color'] = COLORS[mech_idx]
-        mech_frmt['linestyle'] = LINESTYLES[mech_idx]
         mech_frmt['marker'] = ''
     else:  # if mech_idx is None, it's an experiment
-        mech_frmt['label'] = 'Experiment'
-        mech_frmt['color'] = opts['exp_color']
-        # If indicated in options, plot points
-        if opts['plot_points']:
-            mech_frmt['linestyle'] = ''
+        mech_frmt['color'] = set_frmt['exp_color']
+        # If indicated, plot points
+        if set_frmt['plot_points']:
             mech_frmt['marker'] = '.'
         # Otherwise, plot lines
         else:
-            mech_frmt['linestyle'] = '-'
             mech_frmt['marker'] = ''
 
     return mech_frmt

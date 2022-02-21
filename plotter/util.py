@@ -24,48 +24,55 @@ def build_pdf(figs_axes, filename='output.pdf', path=None):
     pdf.close()
 
 
-def get_target_titles(exp_set, yunit=None):
+def get_targ_titles(exp_set, yunit=None):
 
     meas_type = exp_set['overall']['meas_type']
     if meas_type == 'abs':
-        target_titles = exp_set['overall']['wavelength']
+        targ_titles = exp_set['plot']['wavelength']
         yunit = yunit or '%'
         ylabel = f'Fractional absorption ({yunit})'
         yquant = 'abs'
     elif meas_type == 'emis':
-        target_titles = exp_set['overall']['wavelength']
+        targ_titles = exp_set['plot']['wavelength']
         ylabel = 'Normalized emission'
         yquant = None
     elif meas_type == 'ion':
         raise NotImplementedError("The 'ion' measurement type is not working.")
     elif meas_type in ('conc', 'outlet'):
-        target_titles = list(exp_set['spc'].keys())
+        targ_titles = list(exp_set['spc'].keys())
         yunit = yunit or ''
         ylabel = f'Mole fraction ({yunit})'
         yquant = 'conc'
     elif meas_type == 'pressure':
-        target_titles = None
+        targ_titles = None
         yunit = yunit or 'atm'
         ylabel = f'Pressure ({yunit})'
         yquant = 'pressure'
     elif meas_type == 'idt':
-        idt_targets = exp_set['plot']['idt_target']
+        idt_targs = exp_set['plot']['idt_targ']
         idt_methods = exp_set['plot']['idt_method']
-        target_titles = []
+        targ_titles = []
         for idt_method in idt_methods:
-            for idt_target in idt_targets:
-                target_title = idt_target + ', ' + idt_method
-                target_titles.append(target_title)
+            for idt_targ in idt_targs:
+                targ_title = idt_targ + ', ' + idt_method
+                targ_titles.append(targ_title)
         yunit = yunit or 's'
         ylabel = f'Ignition delay time ({yunit})'
         yquant = 'time'
+    elif meas_type == 'lfs':
+        targ_titles = ['',]
+        yunit = yunit or 'cm/s'
+        ylabel = f'Laminar flame speed ({yunit})'
+        yquant = 'lfs'
+    else:
+        raise NotImplementedError(f'meas_type {meas_type} not implemented')
 
-    return target_titles, ylabel, yquant
+    return targ_titles, ylabel, yquant
 
 
-def get_cond_titles(exp_set, conds_source, xunit=None):
+def get_cond_titles(exp_set, cond_src, xunit=None):
 
-    sim_util.check_sources('plot', conds_source)  # dummy value for x_source
+    sim_util.check_srcs('plot', cond_src)  # dummy value for x_src
 
     # Load some data
     meas_type = exp_set['overall']['meas_type']
@@ -76,14 +83,14 @@ def get_cond_titles(exp_set, conds_source, xunit=None):
     if meas_type in ('abs', 'emis', 'conc', 'pressure'):
         cond_titles = []
         # If indicated, use the 'plot' conditions instead of the experiments
-        if conds_source == 'plot':
+        if cond_src == 'plot':
             # Loop over each value in the 'plot'-defined values
             conds = sim_util.get_plot_conds(exp_set)
             for cond in conds:
                 cond_title = f'{cond} {units}'
                 cond_titles.append(cond_title)
         # Otherwise, use the experimental conditions
-        elif conds_source == 'exps':
+        elif cond_src == 'exps':
             # Loop over each experimental condition
             exp_objs = exp_set['exp_objs']
             for exp_obj in exp_objs:
@@ -97,11 +104,13 @@ def get_cond_titles(exp_set, conds_source, xunit=None):
         xquant = 'time'
 
     # If on a non-time-resolved measurement
-    elif meas_type in ('idt', 'outlet'):
+    elif meas_type in ('idt', 'outlet', 'lfs'):
         if meas_type == 'idt':
             cond_titles = ['Ignition delays']
-        if meas_type == 'outlet':
+        elif meas_type == 'outlet':
             cond_titles = ['Outlet concentrations']
+        elif meas_type == 'lfs':
+            cond_titles = ['Laminar flame speeds']
         if xunit is None:  # if no xunit given...
             xunit = ALLOWED_UNITS[plot_var][0][0]  # ...use the default unit
         xlabel = ALLOWED_UNITS[plot_var][2] + f' ({xunit})'
@@ -110,8 +119,23 @@ def get_cond_titles(exp_set, conds_source, xunit=None):
             xlabel = '1000/Temperature (K^-1)'
         xquant = plot_var
 
-    # Haven't figured this one out yet
-    elif meas_type == 'ion':
-        raise NotImplementedError("The 'ion' measurement type is not working.")
+    else:
+        raise NotImplementedError(f'meas_type {meas_type} not implemented')
 
     return cond_titles, xlabel, xquant
+
+
+def _mech_names(mech_opts_lst, nmechs):
+    """ Reads the mechanism names from a list of mech_opts; if none are given,
+        fills in defaults
+    """
+
+    if mech_opts_lst is not None:
+        mech_names = []
+        for mech_idx, mech_opts in enumerate(mech_opts_lst):
+            mech_name = mech_opts.get('mech_names') or f'mech {mech_idx + 1}'
+            mech_names.append(mech_name)
+    else:
+        mech_names = [f'mech {mech_idx + 1}' for mech_idx in range(nmechs)]
+
+    return mech_names

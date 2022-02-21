@@ -1,22 +1,29 @@
 import copy
 import numpy as np
+
 from mechsimulator.simulator import util
 from mechsimulator.simulator import outcome
 from mechsimulator.simulator import sens
+from mechsimulator.simulator import pathways
+
 from mechsimulator.parser.exp_checker import get_poss_inps
 
 
-def mult_sets(exp_sets, gases, mech_spc_dcts, calc_types, x_sources,
-              conds_sources, mech_opts_lst=None):
+def mult_sets_filenames():  # will add later; model after plotter.main
+    pass
+
+
+def mult_sets(exp_sets, gases, mech_spc_dcts, calc_types, x_srcs,
+              cond_srcs, mech_opts_lst=None):
     """ Runs multiple experimental sets against multiple mechanisms
 
         :param exp_sets:
         :param gases:
         :param mech_spc_dcts:
-        :param calc_type:
-        :param x_source: the source of the x data (e.g., temperature, time) used
+        :param calc_types:
+        :param x_srcs: the source of the x data (e.g., temperature, time) used
             in the simulations; either 'plot' or 'exps'
-        :param conds_source: the source of the conditions (e.g., temperature)
+        :param cond_srcs: the source of the conditions (e.g., temperature)
             used in the simulations; either 'plot' or 'exps'
         :param mech_opts_lst: list containing sim_options for
         :type mech_opts_lst: list
@@ -28,16 +35,16 @@ def mult_sets(exp_sets, gases, mech_spc_dcts, calc_types, x_sources,
     set_xdata_lst = []
     for idx, exp_set in enumerate(exp_sets):
         set_ydata, set_xdata = single_set(
-            exp_set, gases, mech_spc_dcts, calc_types[idx], x_sources[idx],
-            conds_sources[idx], mech_opts_lst=mech_opts_lst)
+            exp_set, gases, mech_spc_dcts, calc_types[idx], x_srcs[idx],
+            cond_srcs[idx], mech_opts_lst=mech_opts_lst)
         set_ydata_lst.append(set_ydata)
         set_xdata_lst.append(set_xdata)
 
     return set_ydata_lst, set_xdata_lst
 
 
-def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_source,
-               conds_source, mech_opts_lst=None):
+def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_src,
+               cond_src, mech_opts_lst=None):
     """ Calculates the predictions of any number of mechanisms at the conditions
         of a single exp_set
 
@@ -47,136 +54,154 @@ def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_source,
         :type gases: list
         :param mech_spc_dcts: species identifying info for each mechanisms
         :type mech_spc_dcts: list
-        :return mech_results: simulator results for one exp_set using many mechanisms
+        :return mech_results: simulator results for one exp_set using many mechs
         :rtype: Numpy array whose shape depends on the type of measurement:
-            (i) time-resolved: (num_mechs, num_conds, num_targets, num_times)
-            (ii) non-time-resolved: (num_mechs, num_conds, num_targets)
+            (i) time-resolved: (nmechs, nconds, ntargs, ntimes)
+            (ii) non-time-resolved: (nmechs, nconds, ntargs)
     """
 
     # Check inputs
-    util.check_sources(x_source, conds_source)
+    util.check_srcs(x_src, cond_src)
 
     # Initialize variables
     mech_ydata_shape, _, _, mech_xdata = util.get_mech_info(
-        exp_set, calc_type, x_source, conds_source, gases)
+        exp_set, calc_type, x_src, cond_src, gases)
     set_xdata = mech_xdata  # xdata is the same for all mechs in the set
-    num_mechs = len(gases)
-    set_ydata_shape = (num_mechs,) + mech_ydata_shape  # prepend mechs_dim
-    set_ydata = np.ndarray(set_ydata_shape)
-
-    # Check that the sim_opts input was correctly used
-    assert mech_opts_lst is None or len(mech_opts_lst) == num_mechs, (
-        'Unless None, the mech_opts_lst input should be a list of length '
-        'num_mechs, {num_mechs}, not {len(sim_opts)}')
+    nmechs = len(gases)
+    set_ydata_shape = (nmechs,) + mech_ydata_shape  # prepend mechs_dim
+    dtype = 'object' if calc_type == 'pathways' else 'float'
+    set_ydata = np.ndarray(set_ydata_shape, dtype=dtype)
 
     # Loop over each mech and run a simulation with each
     for mech_idx, gas in enumerate(gases):
         # Get the mech_opts for each mech
         if mech_opts_lst is None:
-            sim_opts = None  # will return a copy of exp_set
+            mech_opts = None
         else:
-            sim_opts = mech_opts_lst[mech_idx]
-        # Get the updated_exp_set for each mech
-        updated_exp_set = update_exp_set(exp_set, sim_opts=sim_opts)
+            mech_opts = mech_opts_lst[mech_idx]
+        # Get the updated_exp_set for the current mech
+        updated_exp_set = update_exp_set(exp_set, mech_opts=mech_opts)
         # Run the simulation and store the results
         mech_spc_dct = mech_spc_dcts[mech_idx]
         mech_ydata = single_mech(updated_exp_set, gas, mech_spc_dct, calc_type,
-                                 conds_source, mech_xdata, mech_ydata_shape)
+                                 cond_src, mech_xdata, mech_ydata_shape,
+                                 mech_opts=mech_opts)
         set_ydata[mech_idx] = mech_ydata
 
     return set_ydata, set_xdata
 
 
-def single_mech(exp_set, gas, mech_spc_dct, calc_type, conds_source, xdata,
-                ydata_shape):
+def single_mech(exp_set, gas, mech_spc_dct, calc_type, cond_src, xdata,
+                ydata_shape, mech_opts=None):
 
-    # Must get conds_dct for each mech since mix spc names can change
-    conds_dct = get_conds_dct(exp_set, mech_spc_dct, conds_source)
+    # Must get conds_dct for each mech since spc names can change btw. mechs
+    conds_dct = get_conds_dct(exp_set, mech_spc_dct, cond_src, gas,
+                              mech_opts=mech_opts)
 
     # Run the desired calculation type
     reac_type = exp_set['overall']['reac_type']
     meas_type = exp_set['overall']['meas_type']
     if calc_type == 'outcome':
-        mech_result = outcome.get_result(
+        mech_ydata = outcome.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'sens':
-        mech_result = sens.get_result(
+        mech_ydata = sens.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'rop':
         raise NotImplementedError('rop not ready!')
     else:  # 'pathways'
-        raise NotImplementedError('pathways not ready!')
+        mech_ydata = pathways.single_mech(
+            conds_dct, gas, reac_type, ydata_shape)
 
-    return mech_result
+    return mech_ydata
 
 
-def get_conds_dct(exp_set, mech_spc_dct, conds_source):
+def get_conds_dct(exp_set, mech_spc_dct, cond_src, gas, mech_opts=None):
+    """ Gets the conditions dict
+
+        :param exp_set:
+        :param mech_spc_dct:
+        :param cond_src:
+        :return:
+    """
 
     # Run a check on the species
-    check_spcs(exp_set, mech_spc_dct)
+    check_spcs(exp_set, mech_spc_dct, gas)
 
     # Load initial data
     reac_type = exp_set['overall']['reac_type']
     meas_type = exp_set['overall']['meas_type']
-    if conds_source == 'plot':
-        plot_dct = exp_set['plot']
+    plot_dct = exp_set['plot']
+
+    if cond_src == 'plot':
         var = exp_set['plot']['variable']
         conds = util.get_plot_conds(exp_set)
-        num_conds = len(conds)
+        nconds = len(conds)
     else:  # 'exps'
         exp_objs = exp_set['exp_objs']
-        num_conds = len(exp_objs)  # each experiment is its own condition
+        nconds = len(exp_objs)  # each experiment is its own condition
 
     # Loop over possible inputs and build the conditions dict
     conds_dct = {}
-    poss_inps = get_poss_inps(reac_type, meas_type, conds_source, rm_bad=True)
-    for poss_inp in poss_inps:
-        conds_dct[poss_inp] = [None] * num_conds  # initialize as Nones
-        if conds_source == 'plot':
-            if poss_inp == var:  # if on plotting variable, use array
-                conds_dct[poss_inp] = conds
-            elif plot_dct.get(poss_inp) is not None:  # if a single value exists
-                conds_dct[poss_inp] = [plot_dct[poss_inp]] * num_conds
+    poss_inps = get_poss_inps(reac_type, meas_type, cond_src, rm_bad=True)
+    for inp in poss_inps:
+        conds_dct[inp] = [None] * nconds  # initialize as Nones
+        if cond_src == 'plot':
+            if inp == var:  # if on plotting variable, use array
+                conds_dct[inp] = conds
+            elif plot_dct.get(inp) is not None:  # if a single value exists
+                conds_dct[inp] = [plot_dct[inp]] * nconds
             # Otherwise, just leave as Nones
         else:  # 'exps'
             for cond_idx, exp_obj in enumerate(exp_objs):
-                if exp_obj['conds'].get(poss_inp) is not None:
-                    conds_dct[poss_inp][cond_idx] = exp_obj['conds'][poss_inp][
-                        0]
+                if exp_obj['conds'].get(inp) is not None:
+                    if inp == 'abs_coeff':  # special case; it's a dict
+                        conds_dct[inp][cond_idx] = exp_obj['conds'][inp]
+                    else:
+                        conds_dct[inp][cond_idx] = exp_obj['conds'][inp][0]
                 # Otherwise, just leave as None
 
     # Add the mix information since it is stored separately
     exp_spc_dct = exp_set['spc']
     rename_instr = util.get_rename_instr(mech_spc_dct, exp_spc_dct)
-    if conds_source == 'plot':
+    if cond_src == 'plot':
         raw_mix = exp_set['mix']
-        mix = util.translate_spcs(raw_mix, rename_instr)
-        conds_dct['mix'] = [mix] * num_conds
-        # Note: if I add the ability to have the mix be varied, would need to
-        # have a translator function that would convert the array of mix conds
-        # to dcts defining the mix
+        if 'fuel' in raw_mix:  # if mix is defined using phi
+            mix = rename_fuel_oxid_spcs(raw_mix, rename_instr)
+            if exp_set['plot']['variable'] == 'phi':
+                mix_lst = []
+                for cond in conds:
+                    mix.update({'phi': cond})
+                    mix_lst.append(copy.deepcopy(mix))
+            else:  # if the plot_var is something other than phi
+                mix_lst = [mix] * nconds
+            conds_dct['mix'] = mix_lst
+        else:  # if mix is defined using mole fracs
+            mix = util.translate_spcs(raw_mix, rename_instr)
+            conds_dct['mix'] = [mix] * nconds
     else:  # 'exps'
-        conds_dct['mix'] = [None] * num_conds
+        conds_dct['mix'] = [None] * nconds
         for cond_idx, exp_obj in enumerate(exp_objs):
             raw_mix = exp_obj['mix']
             tuple_mix = util.translate_spcs(raw_mix, rename_instr)
             mix = rm_uncertainty(tuple_mix)  # remove uncertainty bounds
             conds_dct['mix'][cond_idx] = mix
+        # NEED TO ADD CONDITION HERE FOR 'FUEL' (IN TERMS OF PHI)
 
-    # Add the target_spcs info since it is stored separately
-    raw_target_spcs = tuple(exp_spc_dct.keys())
-    target_spcs = util.translate_spcs(raw_target_spcs, rename_instr)
-    conds_dct['target_spcs'] = target_spcs
+    # Add the targ_spcs info since it is stored separately
+    raw_targ_spcs = tuple(exp_spc_dct.keys())
+    targ_spcs = util.translate_spcs(raw_targ_spcs, rename_instr)
+    conds_dct['targ_spcs'] = targ_spcs
 
     # Add the P(t) information since it is stored separately
     if reac_type == 'st':
-        conds_dct['p_of_t'] = [None] * num_conds
-        if conds_source == 'plot':
+        conds_dct['p_of_t'] = [None] * nconds
+        if cond_src == 'plot':
             if 'dpdt' in plot_dct:
                 end_time = plot_dct['end_time']
                 dpdt = plot_dct['dpdt']
                 p_of_t = create_p_of_t(end_time, dpdt)
-                conds_dct['p_of_t'] = [p_of_t] * num_conds
+                conds_dct['p_of_t'] = [p_of_t] * nconds
         else:  # 'exps'
             for cond_idx, exp_obj in enumerate(exp_objs):
                 if 'pressure' in exp_obj['result']:
@@ -194,16 +219,23 @@ def get_conds_dct(exp_set, mech_spc_dct, conds_source):
     # Add ignition delay time information
     if meas_type == 'idt':
         conds_dct['idt_method'] = plot_dct['idt_method']
-        raw_idt_targets = plot_dct['idt_target']
-        idt_targets = []
-        for raw_idt_target in raw_idt_targets:
-            if raw_idt_target == 'pressure':
-                idt_target = 'pressure'
+        raw_idt_targs = plot_dct['idt_targ']
+        idt_targs = []
+        for raw_idt_targ in raw_idt_targs:
+            if raw_idt_targ == 'pressure':
+                idt_targ = ['pressure']  # list for use below with extend
             else:  # if a species
-                idt_target = util.translate_spcs([raw_idt_target], rename_instr)
-                idt_target = idt_target[0]  # converted to lst above; revert
-            idt_targets.append(idt_target)
-        conds_dct['idt_target'] = idt_targets
+                idt_targ = util.translate_spcs([raw_idt_targ], rename_instr)
+            idt_targs.extend(idt_targ)  # extend b/c adding list to list
+        conds_dct['idt_targ'] = idt_targs
+
+    # Add the active species
+    if meas_type in ('abs', 'emis'):  # should 'ion' be here also?
+        conds_dct['active_spc'] = exp_set['plot']['active_spc']
+
+    # Add the wavelengths
+    if meas_type in ('abs', 'emis'):
+        conds_dct['wavelength'] = exp_set['plot']['wavelength']
 
     return conds_dct
 
@@ -226,17 +258,23 @@ def create_p_of_t(end_time, dpdt):
     return p_of_t
 
 
-def update_exp_set(exp_set, sim_opts=None):
+def update_exp_set(exp_set, mech_opts=None):
     """ Updates an exp_set with information from the simulation options
 
         :param exp_set:
-        :param sim_opts:
+        :param mech_opts:
         :return:
     """
 
-    # Doesn't actually do anything right now
-
-    updated_exp_set = copy.deepcopy(exp_set)
+    # If there are no mech_opts given or the only mech_opts are mechanism names,
+    # then save a bit of time by not doing a deepcopy
+    if mech_opts is None or tuple(mech_opts.keys()) == ('mech_names'):
+        updated_exp_set = exp_set
+    # Otherwise, make a copy of the exp_set and use mech_opts to update certain
+    # portions of the exp_set
+    else:
+        # DOESN'T DO ANYTHING RIGHT NOW
+        updated_exp_set = copy.deepcopy(exp_set)
 
     return updated_exp_set
 
@@ -245,26 +283,64 @@ def rm_uncertainty(inp_mix):
     """ Removes the uncertainty bounds from a mixture
 
         :param inp_mix: mixture with uncertainty bounds
-        :type inp_mix: dct {spc1: (conc1, lb1, ub1), spc2: ...}
+        :type inp_mix: dct {param1: (val1, lb1, ub1, type1), param2: ...}
         :return new_mix: mixture with uncertainty bounds removed
-        :rtype: dct {spc1: conc1, spc2: ...}
+        :rtype: dct {param1: val1, param2: ...}
     """
 
     new_mix = {}
-    for spc, conc_tup in inp_mix.items():
-        new_mix[spc] = conc_tup[0]
+    for spc, tup in inp_mix.items():
+        new_mix[spc] = tup[0]
 
     return new_mix
 
 
-def check_spcs(exp_set, mech_spc_dct):
-    """ Checks the species defined in the exp_set and the mech_spc_dct for any
-        problems
-
-        :param exp_set:
-        :param mech_spc_dct:
-        :return:
+def rename_fuel_oxid_spcs(inp_mix, rename_instr):
+    """ Renames the species in a mixture defined using equivalence ratios
     """
+
+    new_mix = {}
+    # Rename the fuel and oxidizer species
+    raw_fuel = inp_mix['fuel']
+    new_mix['fuel'] = util.translate_spcs(raw_fuel, rename_instr)
+    raw_oxid = inp_mix['oxid']
+    new_mix['oxid'] = util.translate_spcs(raw_oxid, rename_instr)
+
+    # Add the fuel and oxidizer ratios, if present
+    if 'fuel_ratios' in inp_mix:
+        new_mix['fuel_ratios'] = inp_mix['fuel_ratios']
+    if 'oxid_ratios' in inp_mix:
+        new_mix['oxid_ratios'] = inp_mix['oxid_ratios']
+
+    return new_mix
+
+
+def check_spcs(exp_set, mech_spc_dct, gas):
+    """ Checks the species defined in the exp_set and the mech_spc_dct for any
+        problems. This cannot be done at the parser level since it depends on
+        not only the exp_set but also the mechanism
+
+        There are two possible problems:
+        (1) A species defined in the exp_set is not defined in the mech_spc_dct
+        (2) A species defined in the exp_set and the mech_spc_dct is not defined
+            in the Solution object (i.e., gas)
+
+        Both problems are only checked for species that MUST be defined: namely,
+        those that are in initial mixtures, IDT targets, or active species in
+        emission/absorption experiments
+    """
+
+    def check_single_spc(spc, rename_instr, sheet_type):
+        """ Checks a single species to see if it's properly defined
+        """
+
+        new_name = rename_instr[spc]
+        assert new_name is not None, (
+            f"'{spc}' is in '{sheet_type}' mix but not in the mech_spc_dct. "
+            f"All spcs in initial mixture must be in the mech_spc_dct.")
+        assert new_name in gas.species_names, (
+            f"'{spc}' is in '{sheet_type}' mix but not in the Solution object. "
+            f"All spcs in initial mixture must be in the Solution object.")
 
     # Load some initial data
     rename_instr = util.get_rename_instr(mech_spc_dct, exp_set['spc'])
@@ -272,23 +348,47 @@ def check_spcs(exp_set, mech_spc_dct):
 
     # Check the info sheet to see if any of the mix species are undefined
     info_mix = exp_set['mix']
-    for spc in info_mix:
-        assert rename_instr[spc] is not None, (
-            f"'{spc}' is in the 'info' mix but not in the mech_spc_dct. "
-            f"All species in initial mixture must be in the mech_spc_dct.")
+    if 'fuel' in info_mix:  # if defined in terms of ratios
+        for spc in info_mix['fuel']:
+            check_single_spc(spc, rename_instr, 'info')
+        for spc in info_mix['oxid']:
+            check_single_spc(spc, rename_instr, 'info')
+    else:  # if defined in terms of spc mole fracs (e.g., 'H2': 0.1, 'O2': 0.9)
+        for spc in info_mix:
+            check_single_spc(spc, rename_instr, 'info')
 
-    # Check each experiment to see if any of the mix species are undefined
+    # Check each experiment to see if any of the mix species are undefined (mix
+    # species should be the same as in the info sheet, but just being thorough)
     for exp_obj in exp_set['exp_objs']:
         exp_mix = exp_obj['mix']
-        for spc in exp_mix:
-            assert rename_instr[spc] in mech_spc_dct, (
-                f"'{spc}' is in an exp_sheet mix but not in the mech_spc_dct. "
-                f"All species in initial mixture must be in the mech_spc_dct.")
+        if 'fuel' in exp_mix:  # if defined in terms of ratios
+            for spc in exp_mix['fuel'][0]:  # [0] omits uncertainty
+                check_single_spc(spc, rename_instr, 'exp')
+            for spc in exp_mix['oxid'][0]:
+                check_single_spc(spc, rename_instr, 'exp')
+        else:  # if defined in terms of spc mole fracs
+            for spc in exp_mix:
+                check_single_spc(spc, rename_instr, 'exp')
 
-    # Check the plot field for missing IDT species
+    # Check that IDT targets are defined
     if meas_type == 'idt':
-        idt_targets = exp_set['plot']['idt_target']
-        for idt_target in idt_targets:
-            if idt_target != 'pressure':
-                assert idt_target in mech_spc_dct, (
-                    f"The IDT target '{idt_target}' is not in the mech_spc_dct")
+        idt_targs = exp_set['plot']['idt_targ']
+        for idt_targ in idt_targs:
+            if idt_targ != 'pressure':  # if on a species
+                new_name = rename_instr[idt_targ]
+                assert new_name is not None, (
+                    f"IDT target '{idt_targ}' is not in the mech_spc_dct")
+                assert new_name in gas.species_names, (
+                    f"IDT target '{idt_targ}' should appear with the name '"
+                    f"{new_name} in the Solution object, but does not.")
+
+    # Check that active species are defined
+    if meas_type in ('abs', 'emis'):
+        active_spcs = exp_set['plot']['active_spc']
+        for active_spc in active_spcs:
+            new_name = rename_instr[active_spc]
+            assert new_name is not None, (
+                f"Active species '{active_spc}' is not in the mech_spc_dct")
+            assert new_name in gas.species_names, (
+                f"Active species '{active_spc}' should appear with the name '"
+                f"{new_name} in the Solution object, but does not.")

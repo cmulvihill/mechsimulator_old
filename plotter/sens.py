@@ -27,7 +27,7 @@ def single_set(set_sens_coeffs, set_xdata, set_rxn_names, set_ref_results,
     """
 
     # Initialize some variables
-    opts = outcome.read_options(exp_set)
+    set_frmt = outcome.get_set_frmt(exp_set)
     num_mechs = len(set_rxn_names)
     mech_names = mech_names or [f'mech {idx + 1}' for idx in range(num_mechs)]
 
@@ -40,7 +40,7 @@ def single_set(set_sens_coeffs, set_xdata, set_rxn_names, set_ref_results,
         mech_rxn_names = set_rxn_names[mech_idx]
         # Initialize empty figures
         mech_figs_axes = build_mech_figs_axes(
-            exp_set, mech_names, opts, conds_source)
+            exp_set, mech_names, set_frmt, conds_source)
         # Plot on the axes and store them
         mech_figs_axes = single_mech(
             mech_sens_coeffs, mech_ref_results, mech_rxn_names, set_xdata,
@@ -135,7 +135,7 @@ def plot_single_target(target_sens_coeffs, target_rxn_names, target_ref_results,
     return fig_axes
 
 
-def build_mech_figs_axes(exp_set, mech_name, opts, conds_source):
+def build_mech_figs_axes(exp_set, mech_name, set_frmt, conds_source):
     """ Builds a list of figures and axes for a single mechanism (each
         condition/target combination gets its own page)
     """
@@ -143,15 +143,15 @@ def build_mech_figs_axes(exp_set, mech_name, opts, conds_source):
     # Don't know what to do with the mech_name input yet...
 
     # Load some information
-    xunit = opts['xunit']
-    yunit = opts['yunit']
+    xunit = set_frmt['xunit']
+    yunit = set_frmt['yunit']
     rows = 5
     columns = 3
 
     # Get the titles and axis labels
     cond_titles, xlabel, _ = util.get_cond_titles(exp_set, conds_source,
                                                   xunit=xunit)
-    target_titles, ylabel, _ = util.get_target_titles(exp_set, yunit=yunit)
+    target_titles, ylabel, _ = util.get_targ_titles(exp_set, yunit=yunit)
     num_grps = len(cond_titles)
     num_plts = len(target_titles)  # plots per group; each plot gets a page
 

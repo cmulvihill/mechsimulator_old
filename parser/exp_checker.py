@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 
 
@@ -9,6 +10,7 @@ ALLOWED_INFO_GROUPS = {
     'plot_format':  (),
     'mix':          (),
     'spc':          (),
+    'sim_opts':     (),
     'exp_objs':     (),
     'ignore_row':   (),
 }
@@ -26,7 +28,8 @@ ALLOWED_REAC_TYPES = {
                      ('dpdt',),
                      ('abs', 'emis', 'idt', 'outlet', 'ion', 'pressure',
                       'conc')),
-    'pfr':          (('temp', 'pressure', 'length', 'mdot', 'area'),
+    'pfr':          (('temp', 'pressure', 'length', ('res_time', 'mdot'),
+                      'area'),
                      (),
                      ('outlet',)),
     'jsr':          (('temp', 'pressure', ('res_time', 'mdot'), 'vol'),
@@ -38,7 +41,10 @@ ALLOWED_REAC_TYPES = {
     'const_t_p':    (('temp', 'pressure', 'end_time'),
                      (),
                      ('abs', 'emis', 'idt', 'outlet', 'ion', 'pressure',
-                      'conc'))
+                      'conc')),
+    'free_flame':   (('temp', 'pressure'),
+                     ('phi',),  # so that 'phi' can be the plot_var
+                     ('lfs',),)
 }
 
 # Allowed measurement types (keys) and:
@@ -46,13 +52,15 @@ ALLOWED_REAC_TYPES = {
 # (2) required inputs in the 'conds' field of the exp_sheet, and
 # (3) optional inputs.
 ALLOWED_MEAS_TYPES = {
-    'abs':          (('variable', 'timestep', 'end_time', 'wavelength'),
+    'abs':          (('variable', 'timestep', 'end_time', 'wavelength',
+                      'active_spc'),
                      ('abs_coeff', 'path_length'),
                      ('start', 'end', 'inc',)),
-    'emis':         (('variable', 'timestep', 'end_time', 'wavelength'),
+    'emis':         (('variable', 'timestep', 'end_time', 'wavelength',
+                      'active_spc'),
                      (),
                      ('start', 'end', 'inc',)),
-    'idt':          (('variable', 'start', 'end', 'inc', 'idt_target',
+    'idt':          (('variable', 'start', 'end', 'inc', 'idt_targ',
                       'idt_method', 'end_time'),
                      (),
                      ()),
@@ -68,15 +76,58 @@ ALLOWED_MEAS_TYPES = {
     'conc':         (('variable', 'timestep', 'end_time',),
                      (),
                      ('start', 'end', 'inc',)),
+    'lfs':          (('variable', 'start', 'end', 'inc'),
+                     (),
+                     (),)
 }
 
 # Miscellaneous plotting inputs that are allowed (although will be often unused)
 MISC_PLOT_INPUTS = ('group_by', 'rows_cols', 'marker_size',
                     'exp_color', 'plot_points', 'xunit', 'xlim', 'yunit',
-                    'ylim', 'omit_targets')
+                    'ylim', 'omit_targs')
 
 # Allowed 'idt_method' options for determining ignition delay time
 ALLOWED_IDT_METHODS = ('baseline_extrap', 'max_slope', 'max_value')
+
+# Allowed parameters for defining a mixture with phi:
+# (1) required parameters
+# (2) optional parameters
+ALLOWED_PHI_PARAMS = (
+    ('fuel', 'oxid', 'phi'),
+    ('fuel_ratios', 'oxid_ratios')
+)
+
+# Allowed simulation options (keys) and:
+# (1) their default values
+# (2) permitted reactor types for that option (blank indicates all reactors)
+ALLOWED_SIM_OPTS = {
+    'niters':           (2e4,
+                         ('jsr',)),
+    'nsteps':           (2e3,
+                         ('pfr',)),
+    'width':            (0.05,
+                         ('free_flame', 'burner')),
+    'log_level':        (0,
+                         ('free_flame', 'burner')),
+    'ratio':            (10.0,
+                         ('free_flame', 'burner')),
+    'slope':            (0.8,
+                         ('free_flame', 'burner')),
+    'curve':            (0.8,
+                         ('free_flame', 'burner')),
+    'prune':            (0.05,
+                         ('free_flame', 'burner')),
+    'sens_factor':      (0.01,
+                         ()),
+    'auto':             (True,
+                         ('free_flame', 'burner')),
+    'transport_model':  ('multi',
+                         ('free_flame', 'burner')),
+    'prev_soln_targ':   ('temp',
+                         ('free_flame', 'burner')),
+    'eos':              ('ig',
+                         ()),
+}
 
 
 def chk_exp_set(exp_set):
@@ -88,6 +139,7 @@ def chk_exp_set(exp_set):
     """
 
     set_id = exp_set['overall']['set_id']  # for printing
+    id_str = f"In set ID {set_id}, "
     reac_type = exp_set['overall']['reac_type']
     meas_type = exp_set['overall']['meas_type']
 
@@ -95,50 +147,46 @@ def chk_exp_set(exp_set):
     for group, params in exp_set.items():
         for reqd_inp in ALLOWED_INFO_GROUPS[group]:
             assert reqd_inp in params, (
-                f"For set ID {set_id}, the param '{reqd_inp}' is missing from"
-                f" the group '{group}'")
+                f"{id_str} param '{reqd_inp}' is missing from group '{group}'")
 
     # Check that the reactor type is allowed
     assert reac_type in ALLOWED_REAC_TYPES.keys(), (
-        f"In set ID {set_id}, the reac_type '{reac_type}' is not allowed. "
+        f"{id_str}reac_type '{reac_type}' is no good. "
         f"Options are: {tuple(ALLOWED_REAC_TYPES.keys())}")
 
     # Check that the measurement type is allowed
     assert meas_type in ALLOWED_REAC_TYPES[reac_type][2], (
-        f"In set ID {set_id}, meas_type '{meas_type}' is not allowed for "
-        f"reac_type {reac_type}. Options are: "
-        f"{ALLOWED_REAC_TYPES[reac_type][2]}")
+        f"{id_str}meas_type '{meas_type}' is no good for reac_type {reac_type}."
+        f" Options are: {ALLOWED_REAC_TYPES[reac_type][2]}")
 
     # Check that the number of exp_objects matches the number indicated in the
     # info sheet
-    num_exps = exp_set['overall']['num_exps']
-    num_exp_objs = len(exp_set['exp_objs'])
-    assert num_exps == num_exp_objs, (
-        f"In set ID {set_id}, the 'info' sheet indicates {num_exps}"
-        f" experiments, while there are {num_exp_objs} exp_objs.")
+    nexps = exp_set['overall']['num_exps']
+    nexp_objs = len(exp_set['exp_objs'])
+    assert nexps == nexp_objs, (
+        f"{id_str}the 'info' sheet indicates {nexps}"
+        f" experiments, while there are {nexp_objs} exp_objs")
 
     # Check that the required inputs exist in the plot field, both according to
     # meas_type and reac_type
     plot_info = exp_set['plot']
+    plot_var = plot_info['variable']
     reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][0]
     reqd_reac_inps = ALLOWED_REAC_TYPES[reac_type][0]
     for reqd_meas_inp in reqd_meas_inps:
         assert reqd_meas_inp in plot_info.keys(), (
-            f"In the 'plot' field of set ID {set_id}, the required input"
-            f" '{reqd_meas_inp}' is missing. This is required for the meas_type"
-            f" '{meas_type}'.")
+            f"{id_str}required 'plot' input '{reqd_meas_inp}' is missing. "
+            f"This is required for meas_type '{meas_type}'")
     # If the meas_type requires the full 'plot' inputs (as indicated by the
     # 'inc' field), check for the proper inputs according to the reactor type
     if 'inc' in reqd_meas_inps:
-        plot_var = plot_info['variable']
         for reqd_reac_inp in reqd_reac_inps:
             # If reqd_reac_inp is a string, i.e., a single value
             if isinstance(reqd_reac_inp, str):
                 assert reqd_reac_inp in plot_info.keys() or reqd_reac_inp \
                     in plot_var, (
-                    f"In the 'plot' field of set ID {set_id}, the required"
-                    f" input '{reqd_reac_inp}' is missing. This is required for"
-                    f" the reac_type '{reac_type}'.")
+                    f"{id_str}required 'plot' input '{reqd_reac_inp}' is "
+                    f"missing. This is required for reac_type '{reac_type}'")
             # If reqd_reac_inp is a tuple with multiple optional variables
             else:
                 satisfied = False
@@ -146,89 +194,154 @@ def chk_exp_set(exp_set):
                 for opt_inp in reqd_reac_inp:
                     if opt_inp in plot_info.keys():
                         assert not satisfied, (
-                            f"For set ID {set_id}, only one of the optional"
-                            f" inputs, {reqd_reac_inp}, should be given.")
+                            f"{id_str}only one of the optional"
+                            f" inputs, {reqd_reac_inp}, should be given")
                         satisfied = True
                 assert satisfied, (
-                    f"For set ID {set_id}, one of the optional inputs,"
-                    f" {reqd_reac_inp}, should be given.")
+                    f"{id_str}one of the optional inputs,"
+                    f" {reqd_reac_inp}, should be given")
 
     # Check that only allowed plot instructions are given
     poss_inps = get_poss_inps(reac_type, meas_type, 'plot', rm_bad=False)
     for inp in plot_info.keys():
         assert inp in poss_inps, (
-                f"For set ID {set_id}, the input '{inp}' is not permitted for"
+                f"{id_str}the input '{inp}' is not permitted for"
                 f" the reactor type '{reac_type}' and the measurement type"
-                f" '{meas_type}'. Options are {poss_inps}.")
+                f" '{meas_type}'. Options are {poss_inps}")
 
     # Check that the number of wavelengths indicated in the 'plot' field matches
     # that given in the results of the exp_sheets
     if meas_type in ('abs', 'emis'):
-        num_exp_wvlens = get_num_wvlens(exp_set)
-        num_set_wvlens = len(exp_set['plot']['wavelength'])
-        assert num_exp_wvlens == num_set_wvlens, (
-            f"For set ID {set_id}, there are {num_exp_wvlens} wavelengths "
-            f"indicated in the exp sheets, but {num_set_wvlens} indicated in"
-            f" the 'plot' field")
+        nexp_wvlens = get_nwvlens(exp_set)
+        nset_wvlens = len(exp_set['plot']['wavelength'])
+        assert nexp_wvlens == nset_wvlens, (
+            f"{id_str}there are {nexp_wvlens} wavelengths indicated in the exp"
+            f" sheets, but {nset_wvlens} indicated in the 'plot' field")
 
     # Check some things regarding ignition delay time measurements
     if meas_type == 'idt':
-        idt_targets = exp_set['plot']['idt_target']
+        idt_targs = exp_set['plot']['idt_targ']
         idt_methods = exp_set['plot']['idt_method']
-        num_targets = len(idt_targets)
-        num_methods = len(idt_methods)
+        ntargs = len(idt_targs)
+        nmethods = len(idt_methods)
         # Check that the number of targets and methods are the same
-        assert num_targets == num_methods, (
-            f"For set ID {set_id}, the number of IDT targets, {idt_targets}, "
-            f"and IDT methods, {idt_methods}, are different.")
+        assert ntargs == nmethods, (
+            f"{id_str}the number of IDT targets, {idt_targs}, "
+            f"and IDT methods, {idt_methods}, are different")
         # Check that the methods are allowed
         for idt_method in idt_methods:
             assert idt_method in ALLOWED_IDT_METHODS, (
-                f"For set ID {set_id}, the idt_method '{idt_method}' is not "
+                f"{id_str}the idt_method '{idt_method}' is not "
                 f"allowed. Options are: {ALLOWED_IDT_METHODS}")
         # Check that the targets are allowed
         all_spcs = tuple(exp_set['spc'].keys())
-        for idt_target in idt_targets:
-            if idt_target != 'pressure':
-                assert idt_target in all_spcs, (
-                    f"For set ID {set_id}, the idt_target '{idt_target}' is not"
-                    f" allowed. Options are either 'pressure' or any of the "
-                    f"defined species: {all_spcs}")
+        for idt_targ in idt_targs:
+            if idt_targ != 'pressure':
+                assert idt_targ in all_spcs, (
+                    f"{id_str}the idt_targ '{idt_targ}' is not allowed. Options"
+                    f" are 'pressure' or any one defined species: {all_spcs}")
         # Check that the number of IDTs indicated in the 'plot' field matches
         # that given in the results of the exp_sheets
-        num_exp_idts = get_num_idts(exp_set)
-        num_set_idts = len(exp_set['plot']['idt_target'])
-        assert num_exp_idts == num_set_idts, (
-            f"For set ID {set_id}, there are {num_exp_idts} IDTs "
-            f"indicated in the exp sheets, but {num_set_idts} indicated in"
-            f" the 'plot' field")
+        nexp_idts = get_nidts(exp_set)
+        nset_idts = len(exp_set['plot']['idt_targ'])
+        assert nexp_idts == nset_idts, (
+            f"{id_str}there are {nexp_idts} IDTs indicated in the exp sheets, "
+            f"but {nset_idts} indicated in the 'plot' field")
 
     # Check that the end_time and timestep are compatible
     timestep = exp_set['plot'].get('timestep')
     end_time = exp_set['plot'].get('end_time')
     if timestep is not None and end_time is not None:
         assert np.isclose(end_time % timestep, 0, atol=1e-8), (
-            f'For set ID {set_id}, the end_time, {end_time}, is not a multiple '
-            f'of the timestep, {timestep}.')
+            f'{id_str}the end_time, {end_time}, is not a multiple '
+            f'of the timestep, {timestep}')
 
     # Check some things regarding the plot_options field
     plot_format = exp_set['plot_format']
     # Check that only allowed groups were given
     for param, val in plot_format.items():
         assert param in MISC_PLOT_INPUTS, (
-            f"For set ID {set_id}, the plot_format input '{param}' is not "
-            f"allowed. Options are {MISC_PLOT_INPUTS}.")
+            f"{id_str}the plot_format input '{param}' is not "
+            f"allowed. Options are {MISC_PLOT_INPUTS}")
         if param == 'group_by':
-            assert val in ('target', 'cond'), (
-                f"'group_by' should be 'target' or 'cond', not {val}")
+            assert val in ('targ', 'cond'), (
+                f"{id_str}'group_by' should be 'targ' or 'cond', not {val}")
         if param == 'plot_points':
             assert isinstance(val, bool), (
-                f"'plot_points' should be either 'yes' or 'no', not {val}")
+                f"{id_str}'plot_points' should be 'yes' or 'no', not {val}")
         # Checks on the xunit and yunit are done in the plotting code
         if param in ('xunit', 'yunit'):
             assert val not in ('C', 'F'), (
-                f"For set ID {set_id}, the x/y unit cannot be {val}. "
-                f"Temperature must be in K.")
+                f"{id_str}the x/y unit cannot be {val}. Temp. must be in K")
+
+    # Check some things regarding active spcs (for absorption, emission, etc.)
+    active_spc = exp_set['plot'].get('active_spc')
+    if active_spc:
+        for active_spc in active_spc:
+            assert active_spc in exp_set['spc'], (
+                f"{id_str}active species {active_spc} is not defined")
+
+    # Check that the mixture is acceptably defined
+    mix = exp_set['mix']
+    all_spcs = tuple(exp_set['spc'].keys())
+    correct_spc, correct_phi = _mix_type(mix, all_spcs, plot_var)
+    # If it's formatted with spc mole fracs
+    if correct_spc:
+        total_mole_frac = 0
+        bal_present = False
+        for spc, mole_frac in mix.items():
+            if mole_frac == 'bal':
+                bal_present = True
+                bal_spc = spc
+            else:
+                total_mole_frac += mole_frac
+        assert total_mole_frac <= 1.0001, (
+            f"{id_str}total mole frac. can't exceed 1")
+        # If the 'bal' keyword was used, fix the species concentration
+        if bal_present:
+            new_mix = copy.deepcopy(mix)
+            new_mix[bal_spc] = 1 - total_mole_frac
+            exp_set['mix'] = new_mix
+            total_mole_frac = 1
+        assert np.isclose(total_mole_frac, 1, atol=1e-4), (
+            f"{id_str}total mole fraction is {total_mole_frac}. Should be 1")
+    # Otherwise, if it's formatted with phi
+    if correct_phi:
+        for fuel_spc in mix['fuel']:  # check that all fuel spcs are def'd
+            assert fuel_spc in all_spcs, (
+                f"{id_str}the spc {fuel_spc} is not defined")
+        for oxid_spc in mix['oxid']:  # check that all oxidizer spcs are def'd
+            assert oxid_spc in all_spcs, (
+                f"{id_str}the spc {oxid_spc} is not defined")
+        # Check that the ratios are properly defined (if at all)
+        if 'fuel_ratios' in mix:
+            assert len(mix['fuel_ratios']) == len(mix['fuel']), (
+                f"{id_str}number of entries in fuel and fuel_ratios must match")
+        if 'oxid_ratios' in mix:
+            assert len(mix['oxid_ratios']) == len(mix['oxid']), (
+                f"{id_str}number of entries in oxid and oxid_ratios must match")
+        if len(mix['fuel']) > 1:
+            assert 'fuel_ratios' in mix, (
+                f"{id_str}for more than one fuel, fuel_ratios is required")
+        if len(mix['oxid']) > 1:
+            assert 'oxid_ratios' in mix, (
+                f"{id_str}for more than one oxidizer, oxid_ratios is required")
+
+    # Check the sim opts
+    def_opts = ALLOWED_SIM_OPTS.keys()
+    # Check that all given opts are allowed
+    for opt in exp_set['sim_opts']:
+        assert opt in def_opts, (
+            f"{id_str}the sim_opt {opt} is not allowed. Options: {def_opts}.")
+        if ALLOWED_SIM_OPTS[opt][1] != ():  # if 2nd entry blank, all reacs ok
+            assert reac_type in ALLOWED_SIM_OPTS[opt][1], (
+                f"{id_str}sim_opt {opt} not allowed for reactor {reac_type}")
+    # Fill in any missing default opts
+    for def_opt in def_opts:
+        if def_opt not in exp_set['sim_opts']:
+            exp_set['sim_opts'][def_opt] = ALLOWED_SIM_OPTS[def_opt]
+
+    return exp_set
 
 
 def chk_exp_obj(exp_obj, exp_set):
@@ -240,12 +353,12 @@ def chk_exp_obj(exp_obj, exp_set):
         :type exp_set: dct
     """
 
-    set_id = exp_set['overall']['set_id']  # for printing
-
     # Check that the experiment ID is defined
+    set_id = exp_set['overall']['set_id']
     assert exp_obj['overall'].get('exp_id') is not None, (
         f"For set ID {set_id}, one exp_sheet is missing the 'exp_id' field")
-    exp_id = exp_obj['overall']['exp_id']  # for printing
+    exp_id = exp_obj['overall']['exp_id']
+    id_str = f"In set ID {set_id}, exp ID {exp_id}, "
 
     # Check for all required inputs for the given reactor type
     reac_type = exp_set['overall']['reac_type']
@@ -254,8 +367,7 @@ def chk_exp_obj(exp_obj, exp_set):
         # If the required input is a single required value (e.g., 'temp')
         if isinstance(reqd_reac_inp, str):
             assert reqd_reac_inp in exp_obj['conds'].keys(), (
-                f"For set ID {set_id}, exp ID {exp_id}, the required input"
-                f" '{reqd_reac_inp}' is absent from the 'conds' field.")
+                f"{id_str}req'd input '{reqd_reac_inp}' missing from 'conds'")
         # If the required input is a tuple, only one of which is required (e.g.,
         # 'res_time' or 'mdot' for a JSR)
         else:  # in this case, reqd_reac_inp is a tuple with multiple variables
@@ -264,28 +376,25 @@ def chk_exp_obj(exp_obj, exp_set):
             for opt_inp in reqd_reac_inp:
                 if opt_inp in exp_obj['conds'].keys():
                     assert not satisfied, (
-                        f"For set ID {set_id}, exp ID {exp_id}, only one of the"
-                        f" optional inputs, {reqd_reac_inp}, should be given.")
+                        f"{id_str}only one of the optional inputs, "
+                        f"{reqd_reac_inp}, should be given.")
                     satisfied = True
             assert satisfied, (
-                f"For set ID {set_id}, exp ID {exp_id}, one of the"
-                f" optional inputs, {reqd_reac_inp}, should be given.")
+                f"{id_str}one of the optional inputs, {reqd_reac_inp}, needed")
 
     # Check for all required inputs for the given measurement type
     meas_type = exp_set['overall']['meas_type']
     reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][1]
     for reqd_meas_inp in reqd_meas_inps:
         assert reqd_meas_inp in exp_obj['conds'].keys(), (
-            f"For set ID {set_id}, exp ID {exp_id}, the required input"
-            f" {reqd_meas_inp} is absent from the 'conds' field.")
+            f"{id_str}the red'd input {reqd_meas_inp} missing from 'conds'")
 
     # Check that only allowed conditions are given
     poss_inps = get_poss_inps(reac_type, meas_type, 'exps')
     for inp in exp_obj['conds'].keys():
         assert inp in poss_inps, (
-            f"For set ID {set_id}, exp ID {exp_id}, the input '{inp}' is not"
-            f" permitted for the reactor type '{reac_type}' and the measurement"
-            f" type '{meas_type}'. Options are {poss_inps}.")
+            f"{id_str}input '{inp}' not allowed for reactor type '{reac_type}' "
+            f"and measurement type '{meas_type}'. Options are {poss_inps}.")
 
     # Check that all arrays in the result section are the same length
     lengths = []
@@ -303,21 +412,72 @@ def chk_exp_obj(exp_obj, exp_set):
                     lengths.append(len(val))
     # The lengths should all be the same (i.e., 1) or empty if no arrays (0)
     assert len(set(lengths)) in (0, 1), (
-        f"For set ID {set_id}, exp ID {exp_id}, the time-resolved arrays in the"
-        f" 'result' section are not all the same length")
+        f"{id_str}time-resolved arrays in 'result' are not all the same length")
 
     # Check some things regarding absorption measurements
     if meas_type == 'abs':
+        assert exp_obj['result'].get('abs') is not None, (
+            f"Set ID {set_id} is 'abs' but exp ID {exp_id} has no 'abs' data")
         # Check that the keys of the result section are formatted correctly
-        for name, result in exp_obj['result'].items():
-            if name == 'abs':
-                assert isinstance(result, dict), (
-                    f"For set ID {set_id}, exp ID {exp_id}, the 'abs' result"
-                    f" should be a dict.")
-                for key in result.keys():
-                    assert isinstance(key, int), (
-                        f"For set ID {set_id}, exp ID {exp_id}, the 'abs'"
-                        f" result should have integers as the keys (1, 2, ...)")
+        for key in exp_obj['result']['abs'].keys():
+            assert isinstance(key, int), (
+                f"{id_str}'abs' result requires integers as keys (1, 2, ...)")
+        # Check that the species defined in the absorption coefficients are also
+        # defined in the active spcs
+        active_spc = exp_set['plot']['active_spc']
+        for abs_coeffs in exp_obj['conds']['abs_coeff'].values():
+            for spc in abs_coeffs.keys():
+                assert spc in active_spc, (
+                    f"{id_str}'{spc}' is defined in the absorption coefficients"
+                    f" but not in the active spcs, {active_spc}.")
+
+    # Check that the mixture is acceptably defined
+    mix = exp_obj['mix']
+    all_spcs = tuple(exp_set['spc'].keys())
+    correct_spc, correct_phi = _mix_type(mix, all_spcs, None)  # plot_var = None
+    # If it's formatted with spc mole fracs, check a few things
+    if correct_spc:
+        total_mole_frac = 0
+        bal_present = False
+        for spc, x_tuple in mix.items():
+            mole_frac = x_tuple[0]  # [0] omits uncertainty
+            if mole_frac == 'bal':
+                bal_present = True
+                bal_spc = spc
+                bal_uncertainty = list(x_tuple)[1:]  # remove first entry
+            else:
+                total_mole_frac += mole_frac
+        assert total_mole_frac <= 1.0001, (
+            f"{id_str} total mole frac. can't exceed 1")
+        if bal_present:
+            new_mix = copy.deepcopy(mix)
+            new_mix[bal_spc] = ((1 - total_mole_frac),) + tuple(bal_uncertainty)
+            exp_obj['mix'] = new_mix
+            total_mole_frac = 1
+        assert np.isclose(total_mole_frac, 1, atol=1e-4), (
+            f"{id_str} total mole fraction is {total_mole_frac}. Should be 1")
+    if correct_phi:
+        for fuel_spc in mix['fuel'][0]:  # check that all fuel spcs are def'd
+            assert fuel_spc in all_spcs, (
+                f"{id_str}the spc {fuel_spc} is not defined")
+        for oxid_spc in mix['oxid'][0]:  # check that all oxid spcs are def'd
+            assert oxid_spc in all_spcs, (
+                f"{id_str}the spc {oxid_spc} is not defined")
+        # Check that the ratios are properly defined (if at all)
+        if 'fuel_ratios' in mix:
+            assert len(mix['fuel_ratios'][0]) == len(mix['fuel'][0]), (
+                f"{id_str}number of entries in fuel and fuel_ratios must match")
+        if 'oxid_ratios' in mix:
+            assert len(mix['oxid_ratios'][0]) == len(mix['oxid'][0]), (
+                f"{id_str}number of entries in oxid and oxid_ratios must match")
+        if len(mix['fuel'][0]) > 1:  # ensure fuel_ratios are given if needed
+            assert 'fuel_ratios' in mix, (
+                f"{id_str}for more than one fuel, fuel_ratios is required")
+        if len(mix['oxid'][0]) > 1:  # ensure oxid_ratios are given if needed
+            assert 'oxid_ratios' in mix, (
+                f"{id_str}for more than one oxidizer, oxid_ratios is required")
+
+    return exp_obj
 
 
 # Miscellaneous functions
@@ -340,7 +500,7 @@ def get_poss_inps(reac_type, meas_type, plot_or_exps, rm_bad=True):
     # Get the required inputs and flatten them
     if plot_or_exps == 'plot':
         reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][0]
-    elif plot_or_exps == 'exps':
+    else:  # 'exps'
         reqd_meas_inps = ALLOWED_MEAS_TYPES[meas_type][1]
     reqd_reac_inps = ALLOWED_REAC_TYPES[reac_type][0]
     flat_reqd_meas_inps = flatten_tup(reqd_meas_inps)
@@ -386,28 +546,61 @@ def flatten_tup(inp_tup):
     return flat_tup
 
 
-def get_num_wvlens(exp_set):
+def get_nwvlens(exp_set):
     """ Gets the number of wavelengths specified throughout the experimental set
     """
 
     meas_type = exp_set['overall']['meas_type']
-    num_wvlens = 0
+    nwvlens = 0
     for exp_obj in exp_set['exp_objs']:
         current_num = len(exp_obj['result'][meas_type])
-        if current_num > num_wvlens:
-            num_wvlens = current_num
+        if current_num > nwvlens:
+            nwvlens = current_num
 
-    return num_wvlens
+    return nwvlens
 
 
-def get_num_idts(exp_set):
+def get_nidts(exp_set):
     """ Gets the number of IDT values specified throughout the experimental set
     """
 
-    num_idts = 0
+    nidts = 0
     for exp_obj in exp_set['exp_objs']:
         current_num = len(exp_obj['result']['idt'])
-        if current_num > num_idts:
-            num_idts = current_num
+        if current_num > nidts:
+            nidts = current_num
 
-    return num_idts
+    return nidts
+
+
+def _mix_type(mix, all_spcs, plot_var):
+    """ Determines whether a mixture is defined in terms of mole fractions or
+        in terms of equivalence ratio
+    """
+
+    # See if the mixture passes the simple species check
+    correct_spc = True
+    for spc in mix:  # assume that the keys are species
+        if spc not in all_spcs:
+            correct_spc = False
+            break
+    # If the simple spc check failed, see if the mix passes a simple phi check
+    correct_phi = False
+    if correct_spc is False:
+        for idx, reqd_inp in enumerate(ALLOWED_PHI_PARAMS[0]):
+            if reqd_inp not in mix:
+                if plot_var is not None and reqd_inp == plot_var:
+                    pass  # if reqd_inp is satisfied via plot_var, don't break
+                else:
+                    break
+            if idx == len(ALLOWED_PHI_PARAMS[0]) - 1:
+                correct_phi = True  # True if made it through the loop
+
+    assert correct_spc or correct_phi, (
+        "The mixture is incorrectly formatted for both spcs and phi. If "
+        "defining in terms of spcs, use the format {spc1: X1, spc2: X2, ...}."
+        "If defining in terms of phi, use the format {'phi': phi, "
+        "'fuel': fuel, 'oxid': oxid} (fuel_ratios and oxid_ratios may also be "
+        "given).")
+
+    return correct_spc, correct_phi

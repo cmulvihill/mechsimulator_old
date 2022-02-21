@@ -2,10 +2,9 @@ import numpy as np
 import cantera as ct
 
 
-def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
-       run_rop=False):
-    """ Runs a shock tube simulation, with non-ideal pressure rise, dP/dt,
-        incorporated via an input P(t) profile
+def st(temp, pressure, mix, gas, targ_spcs, end_time, p_of_t=None):
+    """ Runs a shock tube simulation; the non-ideal pressure rise, dP/dt,
+        can be incorporated via an optional P(t) profile
 
         :param temp: reactor inlet temperature (Kelvin)
         :type temp: float
@@ -15,16 +14,16 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
         :type mix: dct {spc1: conc1, spc2: ...}
         :param gas: a Cantera object describing a kinetics mechanism/gas
         :type gas: Cantera Solution object
-        :param target_spcs: desired species concentrations
-        :type target_spcs: list [spc1, spc2, ...]
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
         :param end_time: end time for the simulation (s); simulation will end
             at the first of either this time or the max time in p_of_t
         :type end_time: float
         :param p_of_t: specified pressure (any units) vs time (s) profile;
             can be None if no non-ideal effects are being simulated
         :type p_of_t: Numpy array of shape (2, num_exp_timesteps)
-        :return target_concs: target_spcs mole fractions at each time
-        :rtype: Numpy array of shape (num_target_spcs, num_timesteps)
+        :return targ_concs: targ_spcs mole fractions at each time
+        :rtype: Numpy array of shape (num_targ_spcs, num_timesteps)
         :return times: array of time values (s)
         :rtype: Numpy array of shape (num_timesteps,)
 
@@ -46,8 +45,7 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
 
         return vel
 
-    pressure = pressure * 101325  # atm to Pa
-    gas.TPX = temp, pressure, mix
+    gas = _set_state(gas, temp, pressure, mix)
 
     if p_of_t is None:
         # Create an array of ones spanning from t=0 to t=end_time
@@ -61,10 +59,10 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
 
     # Set up reactor, wall, and network
     reac = ct.IdealGasReactor(gas)
-    reac.volume = 1  # m^3 (this is the default, but put here for clarity)
+    reac.volume = 1  # m^3 (default value, but here for clarity)
     env = ct.Reservoir(gas)
     wall = ct.Wall(env, reac)
-    wall.area = 1  # m^2 (this is the default, but put here for clarity)
+    wall.area = 1  # m^2 (default value, but here for clarity)
     wall.heat_transfer_coeff = 0  # no heat transfer considerations for ST
     wall.set_velocity(_wall_velocity)
     network = ct.ReactorNet([reac])
@@ -82,23 +80,20 @@ def st(temp, pressure, mix, gas, target_spcs, end_time, p_of_t=None,
     times = states.t
     pressures = states.P
     temps = states.T
-    target_concs = np.zeros((len(target_spcs), len(times)))
-    for idx, target_spc in enumerate(target_spcs):
-        if target_spc is not None:
-            target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+    targ_concs = np.zeros((len(targ_spcs), len(times)))
+    for idx, targ_spc in enumerate(targ_spcs):
+        if targ_spc is not None:
+            targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
         else:
-            target_concs[idx, :] = np.nan
+            targ_concs[idx, :] = np.nan
+
+    rop = None  # will develop later...
     end_gas = gas
-    
-    if run_rop: 
-        rop = None
-    else:
-        rop = []
 
-    return target_concs, pressures, temps, times, rop, end_gas
+    return targ_concs, pressures, temps, times, rop, end_gas
 
 
-def rcm(temp, pressure, mix, gas, target_spcs, end_time, v_of_t):
+def rcm(temp, pressure, mix, gas, targ_spcs, end_time, v_of_t):
     """ Runs a rapid compression machine simulation, with compression and heat
         loss incorporated via an input V(t) profile
 
@@ -111,8 +106,8 @@ def rcm(temp, pressure, mix, gas, target_spcs, end_time, v_of_t):
             {'H2': 0.5, 'O2': 0.5})
         :param gas: a Cantera object describing a kinetics mechanism/gas
         :type gas: Cantera Solution object
-        :param target_spcs: desired species concentrations
-        :type target_spcs: list [spc1, spc2, ...]
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
         :param end_time: end time for the simulation (s); simulation will end
             at the first of either this time or the max time in v_of_t
         :type end_time: float
@@ -135,13 +130,12 @@ def rcm(temp, pressure, mix, gas, target_spcs, end_time, v_of_t):
             :rtype: float
         """
         dvdt = np.gradient(v_of_t[1, :], v_of_t[0, :])
-        dxdt = dvdt / piston.area  # only for clarity (since A = 1 m^2)
+        dxdt = dvdt / piston.area  # only for clarity (since area = 1 m^2)
         vel = np.interp(time, v_of_t[0, :], -1 * dxdt)
 
         return vel
 
-    pressure = pressure * 101325  # atm to Pa
-    gas.TPX = temp, pressure, mix
+    gas = _set_state(gas, temp, pressure, mix)
 
     # Normalize the volume profile by the first value
     v_of_t[1, :] = v_of_t[1, :] / v_of_t[1, 0]
@@ -168,16 +162,17 @@ def rcm(temp, pressure, mix, gas, target_spcs, end_time, v_of_t):
     # Get results
     times = states.t
     pressures = states.P
-    target_concs = np.zeros((len(target_spcs), len(times)))
-    for idx, target_spc in enumerate(target_spcs):
-        target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+    targ_concs = np.zeros((len(targ_spcs), len(times)))
+    for idx, targ_spc in enumerate(targ_spcs):
+        targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
     end_gas = gas
+    rop = None  # temporary
 
-    return target_concs, end_gas, rop, times, pressures
+    return targ_concs, end_gas, rop, times, pressures
 
 
-def pfr(temp, pressure, mix, gas, target_spcs, mdot, area, length,
-        n_steps=2000):
+def pfr(temp, pressure, mix, gas, targ_spcs, mdot, area, length,
+        res_time=None, n_steps=2000):
     """ Runs a plug flow reactor simulation
 
         :param temp: reactor inlet temperature (Kelvin)
@@ -189,26 +184,29 @@ def pfr(temp, pressure, mix, gas, target_spcs, mdot, area, length,
             (example: {'H2': 0.5, 'O2': 0.5})
         :param gas: a Cantera object describing a kinetics mechanism/gas
         :type gas: Cantera Solution object
-        :param target_spcs: desired species concentrations
-        :type target_spcs: list [spc1, spc2, ...]
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
         :param mdot: reactor mass flow rate (kg/s)
         :type mdot: float
         :param area: reactor cross-sectional area (m^2)
         :type area: float
         :param length: reactor length (m)
         :type length: float
+        :param res_time: reactor residence time (s); should only be given if
+            mdot is None
+        :type res_time: float
         :param n_steps: approx. number of steps to take; used to guess timestep
             (note: will almost NEVER be the actual number of timesteps taken)
         :type n_steps: int
-        :return target_concs: target_spcs mole fractions at each time/position
-        :rtype: Numpy array of shape (num_targets, num_times)
+        :return targ_concs: targ_spcs mole fractions at each time/position
+        :rtype: Numpy array of shape (num_targs, num_times)
         :return times: time values at each solver step
         :rtype: Numpy array of shape (num_times,)
         :return positions: position values at each solver step
         :rtype: Numpy array of shape (num_times,)
     """
-    pressure = pressure * 101325  # atm to Pa
-    gas.TPX = temp, pressure, mix
+
+    gas = _set_state(gas, temp, pressure, mix)
 
     # Create reactor and reactor network
     reac = ct.IdealGasConstPressureReactor(gas)
@@ -216,6 +214,8 @@ def pfr(temp, pressure, mix, gas, target_spcs, mdot, area, length,
 
     # Approximate a time step
     density, _ = gas.DP  # kg/m^3
+    if res_time is not None:  # if res_time was given instead of mdot
+        mdot = (density * area * length) / res_time  # kg/s
     inlet_velocity = mdot / (density * area)  # m/s
     dt = (length / inlet_velocity) / n_steps  # s
 
@@ -226,7 +226,7 @@ def pfr(temp, pressure, mix, gas, target_spcs, mdot, area, length,
     states = ct.SolutionArray(reac.thermo)
 
     # Loop over each timestep
-    end_idx = len(times)  # defining as backup; should be overwritten
+    end_idx = len(times) - 1  # defining as backup; should be overwritten
     for idx, time in enumerate(times):
         network.advance(time)  # perform time integration
         velocities[idx] = mdot / area / reac.thermo.density
@@ -243,14 +243,17 @@ def pfr(temp, pressure, mix, gas, target_spcs, mdot, area, length,
     positions = positions[:(end_idx + 1)]
 
     # Get results for target species
-    target_concs = np.zeros((len(target_spcs), end_idx + 1))
-    for idx, target_spc in enumerate(target_spcs):
-        target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+    targ_concs = np.zeros((len(targ_spcs), end_idx + 1))
+    for idx, targ_spc in enumerate(targ_spcs):
+        targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
 
-    return target_concs, times, positions
+    end_gas = gas
+    rop = None
+
+    return targ_concs, times, positions, rop, end_gas
 
 
-def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
+def jsr(temp, pressure, mix, gas, targ_spcs, res_time, vol, prev_concs=None,
         mdot=None, max_iter=30000):
     """ Runs a jet-stirred reactor simulation
 
@@ -263,30 +266,28 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
             {'H2': 0.5, 'O2': 0.5})
         :param gas: a Cantera object describing a kinetics mechanism/gas
         :type gas: Cantera Solution object
-        :param target_spcs: desired species concentrations
-        :type target_spcs: list [spc1, spc2, ...]
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
         :param res_time: reactor residence time (s)
         :type res_time: float
         :param vol: volume of the reactor (m^3)
         :type vol: float
         :param prev_concs: species concentrations from previous solution at
             a similar condition
-        :type prev_concs: numpy array of shape (num_spcs_in_mechanism,)
+        :type prev_concs: numpy array of shape (nspcs_in_mechanism,)
+        :param mdot: mass flow rate (kg/s); should only be given if res_time is
+            None
+        :type mdot: float
         :param max_iter: max number of timesteps to achieve steady state
         :type max_iter: int
-        :return target_concs: outlet concentrations of target_spcs
-        :rtype: Numpy array of shape (num_targets,)
+        :return targ_concs: outlet concentrations of targ_spcs
+        :rtype: Numpy array of shape (ntargs,)
         :return all_concs: outlet concentrations of all species in mech
-        :rtype: Numpy array of shape (num_spcs_in_mechanism,)
+        :rtype: Numpy array of shape (nspcs_in_mechanism,)
     """
 
-    assert res_time is None or mdot is None, (
-        'Both res_time and mdot were provided; only one should be given.')
-
-    pressure = pressure * 101325  # atm to Pa
-    gas.TPX = temp, pressure, mix
-
-    # Create reservoirs
+    # Note: must set with mix before creating reservoirs!
+    gas = _set_state(gas, temp, pressure, mix)
     inlet = ct.Reservoir(gas)
     exhaust = ct.Reservoir(gas)
 
@@ -295,20 +296,18 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
     if prev_concs is None:
         prev_concs_input = False
         prev_concs = mix
-    gas.TPX = temp, pressure, prev_concs  # prev_concs to speed up convergence
+    # Use prev_concs to speed up convergence
+    gas = _set_state(gas, temp, pressure, prev_concs)
     reac = ct.IdealGasReactor(gas, energy='off', volume=vol)
 
     # Set up devices
     pressure_valve_coeff = 0.01  # "conductance" of the pressure valve
-    p_reg = ct.Valve(upstream=reac, downstream=exhaust, K=pressure_valve_coeff)
-    # The mass flow controller condition depends on the inputs
-    if res_time is not None:
-        mfc = ct.MassFlowController(upstream=inlet, downstream=reac,
-                                    mdot=reac.mass / res_time)
+    ct.Valve(upstream=reac, downstream=exhaust, K=pressure_valve_coeff)
+    if res_time is not None:  # MFC condition depends on inputs
+        ct.MassFlowController(upstream=inlet, downstream=reac,
+                              mdot=reac.mass / res_time)
     elif mdot is not None:
-        mfc = ct.MassFlowController(upstream=inlet, downstream=reac, mdot=mdot)
-    else:  # if both res_time and mdot are None
-        raise NotImplementedError('Either mdot or res_time must be given.')
+        ct.MassFlowController(upstream=inlet, downstream=reac, mdot=mdot)
 
     # Create reactor network (only the JSR in this case) and advance it to SS
     reac_net = ct.ReactorNet([reac])
@@ -316,10 +315,11 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
     try:
         reac_net.advance_to_steady_state(max_steps=max_iter)
         all_concs = reac.thermo.X  # store output concentrations
-    except ct._cantera.CanteraError:
+    except ct._cantera.CanteraError as ct_error:
         failure = True
-        print(f'The solver failed at {temp} K for mechanism {gas.name}')
-        # If no initial guess, next iteration will use initial mix as guess
+        print(f"The solver failed at {temp} K for mechanism {gas.name}. The "
+              f"error was:\n{ct_error}")
+        # If no initial guess, set results to None for next iteration
         if prev_concs_input is False:
             all_concs = None
         # If an initial guess was input, return it for use in the next iteration
@@ -327,22 +327,22 @@ def jsr(temp, pressure, mix, gas, target_spcs, res_time, vol, prev_concs=None,
             all_concs = prev_concs
 
     # Get results for target species
-    target_concs = np.zeros(len(target_spcs))
-    for idx, target_spc in enumerate(target_spcs):
+    targ_concs = np.zeros(len(targ_spcs))
+    for idx, targ_spc in enumerate(targ_spcs):
         if failure:
-            target_concs[idx] = None
+            targ_concs[idx] = None
         else:
-            if target_spc in gas.species_names:
-                target_concs[idx] = all_concs[gas.species_index(target_spc)]
-            else:  # if the target_spc isn't in the mechanism
-                target_concs[idx] = None
+            if targ_spc in gas.species_names:
+                targ_concs[idx] = all_concs[gas.species_index(targ_spc)]
+            else:  # if the targ_spc isn't in the mechanism
+                targ_concs[idx] = None
     end_gas = gas
     rop = None
 
-    return target_concs, all_concs, rop, end_gas
+    return targ_concs, all_concs, rop, end_gas
 
 
-def const_t_p(temp, pressure, mix, gas, target_spcs, end_time):
+def const_t_p(temp, pressure, mix, gas, targ_spcs, end_time):
     """ Runs a constant-temperature, constant-pressure 0-D simulation
 
         :param temp: reactor inlet temperature (Kelvin)
@@ -354,18 +354,17 @@ def const_t_p(temp, pressure, mix, gas, target_spcs, end_time):
             {'H2': 0.5, 'O2': 0.5})
         :param gas: a Cantera object describing a kinetics mechanism/gas
         :type gas: Cantera Solution object
-        :param target_spcs: desired species concentrations
-        :type target_spcs: list [spc1, spc2, ...]
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
         :param end_time: end time for the simulation (s)
         :type end_time: float
-        :return target_concs: target_spcs mole fractions at each time
-        :rtype: Numpy array of shape (num_targets, num_times)
+        :return targ_concs: targ_spcs mole fractions at each time
+        :rtype: Numpy array of shape (ntargs, ntimes)
         :return times: array of time values (s)
-        :rtype: Numpy array of shape (num_times,)
+        :rtype: Numpy array of shape (ntimes,)
     """
 
-    pressure = pressure * 101325  # atm to Pa
-    gas.TPX = temp, pressure, mix
+    gas = _set_state(gas, temp, pressure, mix)
 
     # Setting energy to 'off' holds T constant
     reac = ct.IdealGasConstPressureReactor(gas, energy='off')
@@ -381,10 +380,139 @@ def const_t_p(temp, pressure, mix, gas, target_spcs, end_time):
 
     # Get results
     times = states.t
-    num_targets = len(target_spcs)  # overly verbose for clarity
-    num_times = len(times)
-    target_concs = np.zeros(num_targets, num_times)
-    for idx, target_spc in enumerate(target_spcs):
-        target_concs[idx, :] = states.X[:, gas.species_index(target_spc)]
+    ntargs = len(targ_spcs)  # overly verbose for clarity
+    ntimes = len(times)
+    targ_concs = np.zeros(ntargs, ntimes)
+    for idx, targ_spc in enumerate(targ_spcs):
+        targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
 
-    return target_concs, times
+    return targ_concs, times
+
+
+def free_flame(temp, pressure, mix, gas, targ_spcs, prev_soln=None):
+    """ Runs an adiabatic, 1-D, freely propagating flame simulation
+
+        NOTE: need to add options for simulation details
+
+        :param temp: reactor inlet temperature (Kelvin)
+        :type temp: float
+        :param pressure: reactor constant pressure (atm)
+        :type pressure: float
+        :param mix: initial species concentrations at reactor inlet
+        :type mix: dct {spc1: conc1, spc2: ...} (example:
+            {'H2': 0.5, 'O2': 0.5})
+        :param gas: a Cantera object describing a kinetics mechanism/gas
+        :type gas: Cantera Solution object
+        :param targ_spcs: desired species concentrations
+        :type targ_spcs: list [spc1, spc2, ...]
+        :param prev_soln: previous temperature profile vs. position; first
+            column is position, second is temperature
+        :type prev_soln: Numpy array of shape (2, npoints)
+        :return targ_concs: targ_spcs mole fractions at each grid point
+        :rtype: Numpy array of shape (ntargs, npoints)
+        :return pos: array of grid positions (m)
+        :rtype: Numpy array of shape (npoints,)
+        :return vels: gas velocities at each position (m/s)
+        :rtype: Numpy array of shape (npoints,)
+        :return temps: gas temperatures at each position (K)
+        :rtype: Numpy array of shape (npoints,)
+        :return rop: rate-of-production for each target species at each position
+            (not sure of units...check Cantera once I get RoP working)
+        :rtype: not sure
+        :return end_gas: Cantera solution object. Needs to be at a specific
+            flame location...will need to figure this one out
+        :rtype: Cantera Solution object
+    """
+
+    # Initialize things
+    gas = _set_state(gas, temp, pressure, mix)
+    loglevel = 0  # for now, suppress all output
+    flame = ct.FreeFlame(gas)
+    flame.transport_model = 'Mix'
+    if prev_soln is not None:
+        flame.set_profile('T', prev_soln[0, :], prev_soln[1, :])
+
+    # Run the simulation
+    try:
+        flame.solve(loglevel=loglevel, auto=True)
+    except ct._cantera.CanteraError:
+        print(f'flame failed at {temp} K, {pressure} atm, mix: {mix}')
+
+    # Get the target concentrations
+    npoints = np.shape(flame.X)[1]  # length of second dim is npoints
+    targ_concs = np.ndarray((len(targ_spcs), npoints))
+    for targ_idx, targ_spc in enumerate(targ_spcs):
+        if targ_spc in gas.species_names:
+            targ_concs[targ_idx] = flame.solution(targ_spc)
+        else:  # if the targ_spc isn't in the mechanism
+            targ_concs[targ_idx] = np.nan
+
+    # Get other results
+    pos = flame.grid
+    vels = flame.velocity
+    temps = flame.T
+    rop = None  # not sure what to do here
+    end_gas = None  # will develop later
+
+    return targ_concs, pos, vels, temps, rop, end_gas
+
+
+def burner():
+    # Coming soon...
+    pass
+
+
+def _set_state(gas, temp, pressure, mix):
+    """ Sets a gaseous mixture to a desired thermodynamic state
+
+        :param gas: Cantera Solution object describing some mixture
+        :type gas: Cantera Solution object
+        :param temp: temperature (K)
+        :type temp: float
+        :param pressure: pressure (atm)
+        :type pressure: float
+        :param mix: mixture description; either in terms of equivalence ratio
+            (phi) (e.g., {'phi': 0.5, 'fuel': ['H2',], 'oxid': ['O2', 'N2'],
+            'oxid_ratios': [1, 3.76]}) or in terms of mole fractions (e.g.,
+            {'H2': 0.25, 'O2': 0.3, 'N2': 0.45}
+        :type mix: dict
+        :return gas: Cantera Solution object that has been set to the desired
+            thermodynamic state
+        :rtype: Cantera Solution object
+    """
+
+    pressure = pressure * 101325  # atm to Pa
+
+    if isinstance(mix, dict) and 'fuel' in mix:  # if mix defined using phi
+        # Create string for fuel species
+        fuel = ''
+        nfuels = len(mix['fuel'])
+        for idx in range(nfuels):
+            spc = mix['fuel'][idx]
+            if nfuels > 1:
+                ratio = mix['fuel_ratios'][idx]
+                fuel += f'{spc}: {ratio}'
+                if idx + 1 < nfuels:  # if not on last spc, add a comma
+                    fuel += ', '
+            else:
+                fuel += spc
+        # Create string for oxidizer species
+        oxid = ''
+        noxids = len(mix['oxid'])
+        for idx in range(noxids):
+            spc = mix['oxid'][idx]
+            if noxids > 1:
+                ratio = mix['oxid_ratios'][idx]
+                oxid += f'{spc}: {ratio}'
+                if idx + 1 < noxids:  # if not on last spc, add a comma
+                    oxid += ', '
+            else:
+                oxid += spc
+        phi = mix['phi']
+        gas.set_equivalence_ratio(phi, fuel, oxid, basis='mole')
+        gas.TP = temp, pressure
+
+    else:  # if mix is defined in terms of mole fractions
+        gas.TPX = temp, pressure, mix
+
+    return gas

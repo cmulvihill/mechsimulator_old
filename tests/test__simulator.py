@@ -1,6 +1,5 @@
+from mechsimulator import parser
 from mechsimulator import simulator
-from mechsimulator.parser import exp as exp_parser
-from mechsimulator.parser import spc as spc_parser
 
 
 def test_jsr():
@@ -21,33 +20,84 @@ def test_jsr():
                               calc_type, plot_or_exps)
 
 
-def test_st():
-    """ Tests a shock tube simulation
+def test_st_abs():
+    """ Tests a shock tube absorption simulation
     """
 
+    # Inputs regarding experimental sets; should all be the same length
     exp_filenames = [
-        'data/Mulvihill_2021_N2O.xlsx'
+        'data/davidson_1990_no.xlsx'
     ]
+    calc_types = ['outcome']
+    x_sources = ['plot']  # should be 'plot' or 'exps'
+    conds_sources = ['exps']  # should be 'plot' or 'exps'
+
+    # Inputs regarding mechanisms; should all be the same length
     mech_filenames = [
         'data/N2O_mechanism_Mulvihill.cti',
     ]
     spc_csv_filenames = [
         'data/Mulvihill_N2O_species.csv',
     ]
-    calc_type = 'outcome'
-    plot_or_exps = 'exps'
+    mech_names = [
+        # 'Glarborg',
+        # '+ Alturaifi rates',
+        # '+ Alturaifi therm',
+        'from Sulaiman',
+    ]
 
     # Load the various objects using the filenames
-    exp_sets = exp_parser.load_exp_sets(exp_filenames)
-    gases = simulator.util.load_solution_objs(mech_filenames)
-    mech_spc_dcts = spc_parser.mech_spc_dcts_from_filenames(spc_csv_filenames)
+    exp_sets = parser.main.mult_files(exp_filenames, 'exp')
+    gases = parser.main.mult_files(mech_filenames, 'mech')
+    mech_spc_dcts = parser.main.mult_files(spc_csv_filenames, 'spc')
 
-    #
-    set_results, set_times = simulator.main.mult_sets(
-        exp_sets, gases, mech_spc_dcts, calc_type, plot_or_exps)
-    print(set_results)
+    # Run the simulations
+    set_ydata_lst, set_xdata_lst = simulator.main.mult_sets(
+        exp_sets, gases, mech_spc_dcts, calc_types, x_sources, conds_sources)
+    print('set_ydata_lst:\n', set_ydata_lst)
+    print('set_xdata_lst:\n', set_xdata_lst)
 
+
+def test_st_idt():
+    """ Tests a shock tube IDT simulation
+    """
+
+    # Inputs regarding experimental sets; should all be the same length
+    exp_filenames = [
+        'data/mathieu_2015_phi05_99_1atm.xlsx'
+    ]
+    calc_types = ['outcome']
+    x_sources = ['exps']  # should be 'plot' or 'exps'
+    conds_sources = ['exps']  # should be 'plot' or 'exps'
+
+    # Inputs regarding mechanisms; should all be the same length
+    mech_filenames = [
+        'data/glarborg_no_c.cti',
+    ]
+    spc_csv_filenames = [
+        'data/glarborg_oh_star_species.csv',
+    ]
+    mech_names = [
+        # 'Glarborg',
+        # '+ Alturaifi rates',
+        # '+ Alturaifi therm',
+        'from Sulaiman',
+    ]
+
+    # Load the various objects using the filenames
+    exp_sets = parser.main.mult_files(exp_filenames, 'exp')
+    gases = parser.main.mult_files(mech_filenames, 'mech')
+    mech_spc_dcts = parser.main.mult_files(spc_csv_filenames, 'spc')
+
+    # Run the simulations
+    set_ydata_lst, set_xdata_lst = simulator.main.mult_sets(
+        exp_sets, gases, mech_spc_dcts, calc_types, x_sources, conds_sources)
+
+    print('set_ydata_lst:\n', set_ydata_lst)
+    print('set_xdata_lst:\n', set_xdata_lst)
 
 if __name__ == '__main__':
     # test_jsr()
-    test_st()
+    test_st_abs()
+    # test_st_idt()
+

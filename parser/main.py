@@ -2,7 +2,7 @@ from mechsimulator.parser import exp
 from mechsimulator.parser import spc
 from mechsimulator.parser import mech
 
-ALLOWED_FILETYPES = ('exp', 'csv', 'cti')  # could add correlation
+ALLOWED_FILETYPES = ('exp', 'csv', 'cti')  # could add correlation for opt.
 
 
 def mult_files(filenames, filetype, opts=None):
@@ -10,7 +10,7 @@ def mult_files(filenames, filetype, opts=None):
 
         :param filenames: filenames
         :type: list
-        :param filetype: file type
+        :param filetype: file type; should be 'exp', 'spc', or 'mech'
         :type filetype: str
         :param opts: options for parsing
         :type opts: dict
