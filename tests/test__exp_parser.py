@@ -103,6 +103,7 @@ def test_const_t_p_abs():
     filename = 'sample_const_t_p_abs_v1.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
+    print(_['plot_format'])
 
 
 def test_rcm_idt():
@@ -111,6 +112,8 @@ def test_rcm_idt():
     filename = 'sample_rcm_idt_v1.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
+    print(_['plot_format'])
+
 
 
 def test_mdot_jsr():
@@ -135,7 +138,7 @@ if __name__ == '__main__':
     # test_st_idt()
     # test_pfr()
     # test_jsr()
-    # test_const_t_p_abs()
-    # test_rcm_idt()
+    test_const_t_p_abs()
+    test_rcm_idt()
     # test_mdot_jsr()
-    test_lfs()
+    # test_lfs()

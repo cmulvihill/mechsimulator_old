@@ -6,7 +6,7 @@ import numpy as np
 ALLOWED_INFO_GROUPS = {
     'overall':      ('set_id', 'source', 'description', 'reac_type',
                      'meas_type', 'num_exps', 'version'),
-    'plot':         (),  # in some cases, none are required, so leaving blank
+    'plot':         ('variable', 'start', 'end', 'inc'),
     'plot_format':  (),
     'mix':          (),
     'spc':          (),
@@ -51,6 +51,8 @@ ALLOWED_REAC_TYPES = {
 # (1) required inputs in the 'plot' field of the 'info' sheet,
 # (2) required inputs in the 'conds' field of the exp_sheet, and
 # (3) optional inputs.
+
+# NOTE: could go through and remove the 'variable start end inc'?
 ALLOWED_MEAS_TYPES = {
     'abs':          (('variable', 'timestep', 'end_time', 'wavelength',
                       'active_spc'),
@@ -80,11 +82,6 @@ ALLOWED_MEAS_TYPES = {
                      (),
                      (),)
 }
-
-# Miscellaneous plotting inputs that are allowed (although will be often unused)
-MISC_PLOT_INPUTS = ('group_by', 'rows_cols', 'marker_size',
-                    'exp_color', 'plot_points', 'xunit', 'xlim', 'yunit',
-                    'ylim', 'omit_targs')
 
 # Allowed 'idt_method' options for determining ignition delay time
 ALLOWED_IDT_METHODS = ('baseline_extrap', 'max_slope', 'max_value')
@@ -128,6 +125,26 @@ ALLOWED_SIM_OPTS = {
     'eos':              ('ig',
                          ()),
 }
+
+# Allowed plot formatting options and their default values
+ALLOWED_PLOT_FORMAT = {
+    'plot_points':  None,  # True if meas_type in POINT_MEAS_TYPES; see below
+    'xunit':        None,
+    'xlim':         None,
+    'yunit':        None,
+    'ylim':         None,
+    'omit_targs':   None,
+    'exp_on_top':   True,
+    'rows_cols':    (4, 3),
+    'marker_size':  15,
+    'group_by':     'targ',  # 'cond' if meas_type in POINT_MEAS_TYPES
+    'exp_color':    'black',
+    'xscale':       'linear',
+    'yscale':       'linear',
+}
+
+# Measurement types that default to plotting as points
+POINT_MEAS_TYPES = ('outlet', 'idt', 'lfs')
 
 
 def chk_exp_set(exp_set):
@@ -179,27 +196,29 @@ def chk_exp_set(exp_set):
             f"This is required for meas_type '{meas_type}'")
     # If the meas_type requires the full 'plot' inputs (as indicated by the
     # 'inc' field), check for the proper inputs according to the reactor type
-    if 'inc' in reqd_meas_inps:
-        for reqd_reac_inp in reqd_reac_inps:
-            # If reqd_reac_inp is a string, i.e., a single value
-            if isinstance(reqd_reac_inp, str):
-                assert reqd_reac_inp in plot_info.keys() or reqd_reac_inp \
-                    in plot_var, (
-                    f"{id_str}required 'plot' input '{reqd_reac_inp}' is "
-                    f"missing. This is required for reac_type '{reac_type}'")
-            # If reqd_reac_inp is a tuple with multiple optional variables
-            else:
-                satisfied = False
-                # Make sure  one and only one of the optional inputs was given
-                for opt_inp in reqd_reac_inp:
-                    if opt_inp in plot_info.keys():
-                        assert not satisfied, (
-                            f"{id_str}only one of the optional"
-                            f" inputs, {reqd_reac_inp}, should be given")
-                        satisfied = True
-                assert satisfied, (
-                    f"{id_str}one of the optional inputs,"
-                    f" {reqd_reac_inp}, should be given")
+    # if 'inc' in reqd_meas_inps:
+
+    # Trying something new: removing the 'inc' requirement
+    for reqd_reac_inp in reqd_reac_inps:
+        # If reqd_reac_inp is a string, i.e., a single value
+        if isinstance(reqd_reac_inp, str):
+            assert reqd_reac_inp in plot_info.keys() or reqd_reac_inp \
+                in plot_var, (
+                f"{id_str}required 'plot' input '{reqd_reac_inp}' is "
+                f"missing. This is required for reac_type '{reac_type}'")
+        # If reqd_reac_inp is a tuple with multiple optional variables
+        else:
+            satisfied = False
+            # Make sure  one and only one of the optional inputs was given
+            for opt_inp in reqd_reac_inp:
+                if opt_inp in plot_info.keys():
+                    assert not satisfied, (
+                        f"{id_str}only one of the optional"
+                        f" inputs, {reqd_reac_inp}, should be given")
+                    satisfied = True
+            assert satisfied, (
+                f"{id_str}one of the optional inputs,"
+                f" {reqd_reac_inp}, should be given")
 
     # Check that only allowed plot instructions are given
     poss_inps = get_poss_inps(reac_type, meas_type, 'plot', rm_bad=False)
@@ -240,13 +259,6 @@ def chk_exp_set(exp_set):
                 assert idt_targ in all_spcs, (
                     f"{id_str}the idt_targ '{idt_targ}' is not allowed. Options"
                     f" are 'pressure' or any one defined species: {all_spcs}")
-        # Check that the number of IDTs indicated in the 'plot' field matches
-        # that given in the results of the exp_sheets
-        nexp_idts = get_nidts(exp_set)
-        nset_idts = len(exp_set['plot']['idt_targ'])
-        assert nexp_idts == nset_idts, (
-            f"{id_str}there are {nexp_idts} IDTs indicated in the exp sheets, "
-            f"but {nset_idts} indicated in the 'plot' field")
 
     # Check that the end_time and timestep are compatible
     timestep = exp_set['plot'].get('timestep')
@@ -255,24 +267,6 @@ def chk_exp_set(exp_set):
         assert np.isclose(end_time % timestep, 0, atol=1e-8), (
             f'{id_str}the end_time, {end_time}, is not a multiple '
             f'of the timestep, {timestep}')
-
-    # Check some things regarding the plot_options field
-    plot_format = exp_set['plot_format']
-    # Check that only allowed groups were given
-    for param, val in plot_format.items():
-        assert param in MISC_PLOT_INPUTS, (
-            f"{id_str}the plot_format input '{param}' is not "
-            f"allowed. Options are {MISC_PLOT_INPUTS}")
-        if param == 'group_by':
-            assert val in ('targ', 'cond'), (
-                f"{id_str}'group_by' should be 'targ' or 'cond', not {val}")
-        if param == 'plot_points':
-            assert isinstance(val, bool), (
-                f"{id_str}'plot_points' should be 'yes' or 'no', not {val}")
-        # Checks on the xunit and yunit are done in the plotting code
-        if param in ('xunit', 'yunit'):
-            assert val not in ('C', 'F'), (
-                f"{id_str}the x/y unit cannot be {val}. Temp. must be in K")
 
     # Check some things regarding active spcs (for absorption, emission, etc.)
     active_spc = exp_set['plot'].get('active_spc')
@@ -327,7 +321,7 @@ def chk_exp_set(exp_set):
             assert 'oxid_ratios' in mix, (
                 f"{id_str}for more than one oxidizer, oxid_ratios is required")
 
-    # Check the sim opts
+    # Check the sim opts and fill in missing values with defaults
     def_opts = ALLOWED_SIM_OPTS.keys()
     # Check that all given opts are allowed
     for opt in exp_set['sim_opts']:
@@ -340,6 +334,48 @@ def chk_exp_set(exp_set):
     for def_opt in def_opts:
         if def_opt not in exp_set['sim_opts']:
             exp_set['sim_opts'][def_opt] = ALLOWED_SIM_OPTS[def_opt]
+
+    # Check the plot format options and fill in missing values with defaults
+    plt_frmt = exp_set['plot_format']
+    def_frmts = ALLOWED_PLOT_FORMAT.keys()
+    # Check that all given opts are allowed
+    for frmt, val in plt_frmt.items():
+        assert frmt in def_frmts, (
+            f"{id_str}plot_format '{frmt}' not allowed. Options: {def_frmts}.")
+        if frmt == 'group_by':
+            assert val in ('targ', 'cond'), (
+                f"{id_str}'group_by' should be 'targ' or 'cond', not '{val}'")
+            if meas_type in POINT_MEAS_TYPES:
+                assert val == 'cond', (
+                    f"{id_str}'group_by' should be 'cond' for meas_type "
+                    f"'{meas_type}', not 'targ'")
+        elif frmt == 'plot_points':
+            assert isinstance(val, bool), (
+                f"{id_str}'plot_points' should be 'yes' or 'no', not '{val}'")
+        # Checks on the xunit and yunit are done in the plotting code
+        if frmt in ('xunit', 'yunit'):
+            assert val not in ('C', 'F'), (
+                f"{id_str}the x/y unit cannot be {val}. Temp. must be in K")
+    # Fill in any missing opts with defaults
+    for def_frmt in def_frmts:
+        if def_frmt not in plt_frmt:
+            # If the missing opt is plot_points, get default based on meas_type
+            if def_frmt == 'plot_points':
+                if meas_type in POINT_MEAS_TYPES:
+                    plt_frmt['plot_points'] = True
+                else:
+                    plt_frmt['plot_points'] = False
+            # If the missing opt is plot_points, get default based on meas_type
+            elif def_frmt == 'group_by':
+                if meas_type in POINT_MEAS_TYPES:
+                    plt_frmt['group_by'] = 'cond'
+                else:
+                    plt_frmt['group_by'] = ALLOWED_PLOT_FORMAT[def_frmt]
+            # If the missing opt is yscale, get default based on meas_type
+            elif def_frmt == 'yscale' and meas_type == 'idt':
+                plt_frmt['yscale'] = 'log'
+            else:
+                plt_frmt[def_frmt] = ALLOWED_PLOT_FORMAT[def_frmt]
 
     return exp_set
 
@@ -430,6 +466,15 @@ def chk_exp_obj(exp_obj, exp_set):
                 assert spc in active_spc, (
                     f"{id_str}'{spc}' is defined in the absorption coefficients"
                     f" but not in the active spcs, {active_spc}.")
+
+    if meas_type == 'idt':
+        # Check that the number of IDTs indicated in the 'plot' field matches
+        # that given in the results of the exp_sheets
+        nexp_idts = get_nidts(exp_set)
+        nset_idts = len(exp_set['plot']['idt_targ'])
+        assert nexp_idts == nset_idts, (
+            f"{id_str}there are {nexp_idts} IDTs indicated in the exp sheets, "
+            f"but {nset_idts} indicated in the 'plot' field")
 
     # Check that the mixture is acceptably defined
     mix = exp_obj['mix']

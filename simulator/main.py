@@ -8,8 +8,9 @@ from mechsimulator.simulator import pathways
 
 from mechsimulator.parser.exp_checker import get_poss_inps
 
-
-def mult_sets_filenames():  # will add later; model after plotter.main
+# will add later; model after plotter.main
+# EDIT: actually, will probably delete due to the addition of the runner pkg
+def mult_sets_filenames():
     pass
 
 
@@ -105,6 +106,7 @@ def single_mech(exp_set, gas, mech_spc_dct, calc_type, cond_src, xdata,
         mech_ydata = outcome.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'sens':
+        print('inside sim.main, conds_dct:\n', conds_dct)
         mech_ydata = sens.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'rop':

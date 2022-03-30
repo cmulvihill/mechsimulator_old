@@ -2,16 +2,13 @@ from os.path import join
 from cantera import ck2cti
 
 # Path names
-READ_PATH = '../lib/mechanisms/ckin'  # where to look for Chemkin mechanism
-WRITE_PATH = '../lib/mechanisms/'  # where to write Cantera mechanism
+READ_PATH = '../lib/mechs/ckin'  # where to look for Chemkin mechanism
+WRITE_PATH = '../lib/mechs/'  # where to write Cantera mechanism
 
 # Filename(s) (might not all be used)
-MECH_FILENAME = 'dme_couch_v3.ckin'
-THERMO_FILENAME = 'dme_couch_v1.therm'
-TRAN_FILENAME = 'NUIGMech1.1.TRAN'
-
-
-# DON'T CHANGE ANYTHING BELOW THIS LINE
+MECH_FILENAME = 'butene_pyrolysis.ckin'
+THERMO_FILENAME = 'butene_pyrolysis.therm'
+TRAN_FILENAME = 'C3MechV3.3TRAN.dat'
 
 # Get the output filename
 OUT_FILENAME = MECH_FILENAME.split('.')

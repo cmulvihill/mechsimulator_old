@@ -6,7 +6,7 @@ from mechsimulator.plotter import util
 from mechsimulator.parser.exp import ALLOWED_UNITS
 
 # Define some stuff for plot formatting
-COLORS = ['Red', 'Blue', 'Green', 'Black']
+COLORS = ['Red', 'Blue', 'Green', 'Black', 'Magenta', 'Pink']
 LINESTYLES = ['-', '--', '-.', ':']
 REAC = {
     'st':           'ST',
@@ -24,23 +24,8 @@ MEAS = {
     'pressure': 'Pressure',
     'idt':      'IDT',
     'outlet':   'Outlet',
-    'lfs':      'Flame speed'
+    'lfs':      'Flame speed',
 }
-DEFAULT_OPTS = {
-    'plot_points':  False,
-    'xunit':        None,
-    'xlim':         None,
-    'yunit':        None,
-    'ylim':         None,
-    'omit_targs':   None,
-    'rows_cols':    (4, 3),
-    'marker_size':  15,
-    'group_by':     'target',
-    'exp_color':    'black',
-    'xscale':       'linear',
-    'yscale':       'linear',
-}
-POINT_MEAS_TYPES = ('outlet', 'idt', 'lfs')
 
 
 def single_set(set_ydata, set_xdata, exp_set, conds_src, mech_opts_lst=None):
@@ -62,8 +47,10 @@ def single_set(set_ydata, set_xdata, exp_set, conds_src, mech_opts_lst=None):
     """
 
     # Initialize some variables
-    set_frmt = _set_frmt(exp_set)
+    set_frmt = exp_set['plot_format']
     nmechs = len(set_ydata)
+    if nmechs > 6:
+        print('More than 6 mechanisms! This will cause plotting problems')
 
     # Build the empty figures and axes
     figs_axes = build_figs_axes(exp_set, set_frmt, conds_src, mech_opts_lst,
@@ -118,7 +105,7 @@ def single_mech(mech_ydata, mech_xdata, figs_axes, mech_frmt, exp_set,
                 plt_idx_grp = pg_idx * plts_per_pg + plt_idx_pg  # overall idx
                 if plt_idx_grp < nplts:
                     plt_ydata = get_plt_ydata(mech_ydata, mech_frmt, grp_idx,
-                                              plt_idx_grp, plt_idx_pg, exp_set)
+                                              plt_idx_grp, exp_set)
                     single_plot(plt_ydata, mech_xdata, axs[plt_idx_pg],
                                 mech_frmt, plt_idx_pg, exp_set, mech_idx)
 
@@ -180,6 +167,7 @@ def single_line(plt_ydata, mech_xdata, line_idx, current_ax, mech_frmt, labels):
     yconv = mech_frmt['yconv']
     color = mech_frmt['color']
     marker = mech_frmt['marker']
+    order = mech_frmt['order']  # higher numbers go on top
     if xconv == 'inv':  # fix the case of inverse temperature
         mech_xdata = 1000 / mech_xdata
         xconv = 1
@@ -200,7 +188,8 @@ def single_line(plt_ydata, mech_xdata, line_idx, current_ax, mech_frmt, labels):
     # Get the line label and plot
     label = labels[line_idx]
     current_ax.plot(mech_xdata * xconv, line_ydata * yconv, label=label,
-                    color=color, linestyle=linestyle, marker=marker)
+                    color=color, linestyle=linestyle, marker=marker,
+                    zorder=order)
 
 
 def _labels(nlines, mech_idx, exp_set):
@@ -225,8 +214,7 @@ def _labels(nlines, mech_idx, exp_set):
     return labels
 
 
-def get_plt_ydata(mech_ydata, mech_frmt, grp_idx, plt_idx_grp, plt_idx_pg,
-                  exp_set):
+def get_plt_ydata(mech_ydata, mech_frmt, grp_idx, plt_idx_grp, exp_set):
     """ Get the ydata to plot for a single plot
     
         :param mech_ydata: 
@@ -264,7 +252,7 @@ def get_plt_ydata(mech_ydata, mech_frmt, grp_idx, plt_idx_grp, plt_idx_pg,
                                                 group_by)
         plt_ydata = mech_ydata[cond_idx, start_idx:end_idx]
     else:  # ndims = 2
-        plt_ydata = mech_ydata[:, plt_idx_pg]
+        plt_ydata = mech_ydata[:, plt_idx_grp]
 
     return plt_ydata
 
@@ -406,13 +394,13 @@ def add_headers(exp_set, mech_names):
     header_x_positions = [0.06, 0.37, 0.68]
     header_y_positions = [0.9, 0.92]
     for mech_idx, mech_name in enumerate(mech_names):
-        header = f'{COLORS[mech_idx % 4]} lines: {mech_name}'
+        header = f'{COLORS[mech_idx % len(COLORS)]} lines: {mech_name}'
         if mech_idx < 3:  # three mechs per row
             y_idx = 0
         else:
             y_idx = 1
         plt.figtext(header_x_positions[mech_idx % 3], header_y_positions[y_idx],
-                    header, fontsize=12, color=COLORS[mech_idx % 4])
+                    header, fontsize=12, color=COLORS[mech_idx % len(COLORS)])
 
     # Make some text describing the experimental set
     source = exp_set['overall']['source']
@@ -433,39 +421,6 @@ def add_footers(xlabel, ylabel):
     footnote2 = f'X-axis: {xlabel}\n'
     footnotes = footnote1 + footnote2
     plt.figtext(0.11, 0.06, footnotes, fontsize=10, va="top", ha="left")
-
-
-def _set_frmt(exp_set):
-    """ Gets plot formatting directions for a set
-
-        :param exp_set: exp_set object
-        :type exp_set: dict
-        :return set_frmt: formatting directions for entire set
-        :rtype: dict
-    """
-
-    meas_type = exp_set['overall']['meas_type']
-    raw_frmt = exp_set['plot_format']
-
-    # If the set_frmt was empty, just use the default dictionary
-    if raw_frmt is {}:
-        set_frmt = copy.deepcopy(DEFAULT_OPTS)
-    # If the set_frmt was not empty, fill in any missing values with defaults
-    else:
-        set_frmt = copy.deepcopy(raw_frmt)
-        for parameter, value in DEFAULT_OPTS.items():
-            if parameter not in set_frmt:
-                if meas_type == 'idt' and parameter == 'yscale':
-                    set_frmt[parameter] = 'log'  # the default for idt
-                else:
-                    set_frmt[parameter] = value
-
-    # If the meas_type should be plotted as points, set that
-    if meas_type in POINT_MEAS_TYPES:
-        set_frmt['plot_points'] = True
-        set_frmt['group_by'] = 'cond'
-
-    return set_frmt
 
 
 def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
@@ -507,7 +462,8 @@ def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
                  'xlim': set_frmt['xlim'],
                  'ylim': set_frmt['ylim'],
                  'xscale': set_frmt['xscale'],
-                 'yscale': set_frmt['yscale']}
+                 'yscale': set_frmt['yscale'],
+                 }
 
     # Get the conversion factors
     xunit = set_frmt['xunit']
@@ -519,10 +475,13 @@ def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
     if exp_set['overall']['meas_type'] == 'idt':
         mech_frmt['xconv'] = 'inv'  # so that inverse temp can be plotted
 
-    # Get color and marker; depends on whether or simulation or experiment
+    # Get color, marker, and order; depends on whether simulation or experiment
+    exp_on_top = set_frmt['exp_on_top']
     if mech_idx is not None:  # if mech_idx exists, it's a simulation
-        mech_frmt['color'] = COLORS[mech_idx]
+        mech_frmt['color'] = COLORS[mech_idx % len(COLORS)]
         mech_frmt['marker'] = ''
+        mech_frmt['order'] = mech_idx
+
     else:  # if mech_idx is None, it's an experiment
         mech_frmt['color'] = set_frmt['exp_color']
         # If indicated, plot points
@@ -531,5 +490,10 @@ def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
         # Otherwise, plot lines
         else:
             mech_frmt['marker'] = ''
+        # Put the experiment either in front or in back
+        if exp_on_top:
+            mech_frmt['order'] = 1e3  # bigger than any possible number of mechs
+        else:
+            mech_frmt['order'] = -1  # negative to go behind all
 
     return mech_frmt

@@ -183,7 +183,7 @@ def read_info_sheet(df):
                 conv_val = [int(entry) for entry in raw_val.split(',')]
             elif param == 'omit_targs':
                 conv_val = [entry.strip() for entry in raw_val.split(',')]
-            elif param == 'plot_points':
+            elif param in ('plot_points', 'exp_on_top'):  # Boolean
                 if raw_val == 'yes':
                     conv_val = True
                 elif raw_val == 'no':

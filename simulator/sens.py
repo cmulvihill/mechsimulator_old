@@ -53,6 +53,8 @@ def free_flame(conds_dct, gas, meas_type, ydata_shape, factor=0.01):
 
 def st(conds_dct, gas, meas_type, xdata, ydata_shape, factor=0.01):
 
+    print('inside sim.sens.st')
+
     # Get the reference results (used as baseline for sens calcs)
     outcome_ydata_shape = ydata_shape[1:]  # strip first dim (# of rxns)
     ref_result = outcome.st(

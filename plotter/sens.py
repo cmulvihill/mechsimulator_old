@@ -27,7 +27,7 @@ def single_set(set_sens_coeffs, set_xdata, set_rxn_names, set_ref_results,
     """
 
     # Initialize some variables
-    set_frmt = outcome.get_set_frmt(exp_set)
+    set_frmt = exp_set['plot_format']
     num_mechs = len(set_rxn_names)
     mech_names = mech_names or [f'mech {idx + 1}' for idx in range(num_mechs)]
 

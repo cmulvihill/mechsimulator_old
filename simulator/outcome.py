@@ -19,10 +19,51 @@ def single_mech(conds_dct, gas, reac_type, meas_type, xdata, ydata_shape,
     elif reac_type == 'free_flame':
         mech_ydata, _ = free_flame(conds_dct, gas, meas_type, ydata_shape,
                                    prev_solns=prev_solns)
+    elif reac_type == 'const_t_p':
+        mech_ydata = const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape)
+
     else:
-        raise NotImplementedError(f"reac_type {reac_type} not working")
+        raise NotImplementedError(f"reac_type '{reac_type}' not working")
 
     return mech_ydata
+
+
+def const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape):
+
+    # Get arrays of reactor inputs
+    temps = conds_dct['temp']
+    pressures = conds_dct['pressure']
+    mixes = conds_dct['mix']
+    end_times = conds_dct['end_time']
+    targ_spcs = conds_dct['targ_spcs']
+
+    # Loop over all conditions
+    dtype = 'object' if meas_type == 'pathways' else 'float'
+    mech_ydata = np.ndarray(ydata_shape, dtype=dtype)
+    for cond_idx in range(ydata_shape[0]):  # [0] gives # of conditions
+        raw_concs, raw_press, raw_temps, raw_times, _, _ = reactors.const_t_p(
+            temps[cond_idx], pressures[cond_idx], mixes[cond_idx], gas,
+            targ_spcs, end_times[cond_idx])
+        # Process the raw results
+        mech_ydata[cond_idx] = process_const_t_p(
+            raw_concs, raw_press, raw_temps, raw_times, conds_dct, cond_idx,
+            meas_type, xdata)
+
+    return mech_ydata
+
+
+def process_const_t_p(raw_concs, raw_pressures, raw_temps, raw_times, conds_dct,
+               cond_idx, meas_type, uniform_times):
+
+    if meas_type == 'conc':
+        # Simply interpolate the raw concentrations to fit the uniform times
+        cond_ydata = util.interp(raw_concs, raw_times, uniform_times)
+
+    else:
+        raise NotImplementedError(
+            f"meas_type '{meas_type}' not implemented for reac_type const_t_p")
+
+    return cond_ydata
 
 
 def free_flame(conds_dct, gas, meas_type, ydata_shape, prev_solns=None):

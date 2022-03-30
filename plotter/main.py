@@ -1,3 +1,4 @@
+import numpy as np
 import matplotlib.pyplot as plt
 from mechsimulator.plotter import outcome
 from mechsimulator.plotter import sens
@@ -20,8 +21,8 @@ def mult_sets_filenames(exp_filenames, mech_filenames, spc_csv_filenames,
     mech_spc_dcts = parser.main.mult_files(spc_csv_filenames, 'spc')
 
     # Create the mech options list by reading any optional keywords
-    mech_opts_lst = simulator.util._mech_opts_lst(exp_sets[0], gases, kwargs)
-    print('plot.main, mech_opts_lst', mech_opts_lst)
+    # mech_opts_lst = simulator.util._mech_opts_lst(exp_sets[0], gases, kwargs)
+    mech_opts_lst = None  # filler; will delete this entire function eventually, I think
 
     # Pass the objects to the mult_sets function
     figs_axes = mult_sets(exp_sets, gases, mech_spc_dcts, calc_types, x_srcs,
@@ -83,12 +84,18 @@ def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_src,
                                        cond_src, mech_opts_lst=mech_opts_lst)
     elif calc_type == 'sens':
         # Calculate the sensitivity coefficients
+        print('inside plot.main, exp_set:\n', exp_set)
+        print('plot field of exp_set:\n', exp_set['plot'])
         set_sens, set_xdata = simulator.main.single_set(
             exp_set, gases, mech_spc_dcts, 'sens', x_src, cond_src,
             mech_opts_lst=mech_opts_lst)
         # Sort the sensitivity coefficients
         sorted_set_sens, sorted_set_rxns = simulator.sort_sens.sort_single_set(
             set_sens, gases)
+        # Remove endpoints if a JSR; super hacky :(
+        if exp_set['overall']['reac_type'] == 'jsr':
+            sorted_set_sens[:, :, 0, :] = np.nan
+            sorted_set_sens[:, :, -1, :] = np.nan
         # Calculate the reference results
         set_ref_results, _ = simulator.main.single_set(
             exp_set, gases, mech_spc_dcts, 'outcome', x_src, cond_src,

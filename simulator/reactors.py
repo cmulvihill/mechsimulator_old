@@ -286,17 +286,16 @@ def jsr(temp, pressure, mix, gas, targ_spcs, res_time, vol, prev_concs=None,
         :rtype: Numpy array of shape (nspcs_in_mechanism,)
     """
 
-    # Note: must set with mix before creating reservoirs!
+    # Note: must set gas with mix before creating reservoirs!
     gas = _set_state(gas, temp, pressure, mix)
     inlet = ct.Reservoir(gas)
     exhaust = ct.Reservoir(gas)
 
-    # Create reactor
+    # Create reactor, using prev_concs to speed up convergence
     prev_concs_input = True
     if prev_concs is None:
         prev_concs_input = False
         prev_concs = mix
-    # Use prev_concs to speed up convergence
     gas = _set_state(gas, temp, pressure, prev_concs)
     reac = ct.IdealGasReactor(gas, energy='off', volume=vol)
 
@@ -317,7 +316,7 @@ def jsr(temp, pressure, mix, gas, targ_spcs, res_time, vol, prev_concs=None,
         all_concs = reac.thermo.X  # store output concentrations
     except ct._cantera.CanteraError as ct_error:
         failure = True
-        print(f"The solver failed at {temp} K for mechanism {gas.name}. The "
+        print(f"JSR solver failed at {temp} K for mechanism {gas.name}. The "
               f"error was:\n{ct_error}")
         # If no initial guess, set results to None for next iteration
         if prev_concs_input is False:
@@ -380,13 +379,19 @@ def const_t_p(temp, pressure, mix, gas, targ_spcs, end_time):
 
     # Get results
     times = states.t
-    ntargs = len(targ_spcs)  # overly verbose for clarity
-    ntimes = len(times)
-    targ_concs = np.zeros(ntargs, ntimes)
+    pressures = states.P
+    temps = states.T
+    targ_concs = np.zeros((len(targ_spcs), len(times)))
     for idx, targ_spc in enumerate(targ_spcs):
-        targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
+        if targ_spc is not None:
+            targ_concs[idx, :] = states.X[:, gas.species_index(targ_spc)]
+        else:
+            targ_concs[idx, :] = np.nan
 
-    return targ_concs, times
+    rop = None  # will develop later...
+    end_gas = gas
+
+    return targ_concs, pressures, temps, times, rop, end_gas
 
 
 def free_flame(temp, pressure, mix, gas, targ_spcs, prev_soln=None):
@@ -435,8 +440,9 @@ def free_flame(temp, pressure, mix, gas, targ_spcs, prev_soln=None):
     # Run the simulation
     try:
         flame.solve(loglevel=loglevel, auto=True)
-    except ct._cantera.CanteraError:
-        print(f'flame failed at {temp} K, {pressure} atm, mix: {mix}')
+    except ct._cantera.CanteraError as ct_error:
+        print(f"Free flame solver failed at {temp} K, {pressure} atm, mix: "
+              f"{mix}. The error was:\n{ct_error}")
 
     # Get the target concentrations
     npoints = np.shape(flame.X)[1]  # length of second dim is npoints
