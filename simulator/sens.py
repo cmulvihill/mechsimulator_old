@@ -15,10 +15,40 @@ def single_mech(conds_dct, gas, reac_type, meas_type, xdata, ydata_shape,
                           factor=factor)
     elif reac_type == 'free_flame':
         sens_coeffs = free_flame(conds_dct, gas, meas_type, ydata_shape,
-                                  factor=0.01)
+                                 factor=0.01)
+    elif reac_type == 'const_t_p':
+        sens_coeffs = const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape,
+                         factor=factor)
     else:
         raise NotImplementedError(
-            f"meas_type '{meas_type}' is not implemented for sens!")
+            f"reac_type '{reac_type}' is not implemented for sens!")
+
+    return sens_coeffs
+
+
+def const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape, factor=0.01):
+
+    # Get the reference results (used as baseline for sens calcs)
+    outcome_ydata_shape = ydata_shape[1:]  # strip first dim (# of rxns)
+    ref_result = outcome.const_t_p(
+        conds_dct, gas, meas_type, xdata, outcome_ydata_shape)
+
+    # Get the sensitivity coefficients
+    num_rxns = gas.n_reactions
+    sens_coeffs = np.ndarray(ydata_shape)
+    for rxn_idx in range(num_rxns):
+        current_rxn = gas.reactions()[rxn_idx].equation
+        print(f'Current rxn: {current_rxn}, {rxn_idx + 1} out of {num_rxns}')
+        gas.set_multiplier(1.0)  # reset all multipliers to the original values
+        gas.set_multiplier(1 + factor, rxn_idx)
+        # Run simulation and calculate sens coefficients
+        rxn_result = outcome.const_t_p(
+            conds_dct, gas, meas_type, xdata, outcome_ydata_shape)
+        sens_coeff = (rxn_result - ref_result) / (ref_result * factor)
+        sens_coeffs[rxn_idx, :] = sens_coeff
+        # If on last rxn in this mech, fill up missing rxns with NaNs
+        if rxn_idx == num_rxns - 1:
+            sens_coeffs[rxn_idx + 1:, :] = np.nan
 
     return sens_coeffs
 
@@ -52,8 +82,6 @@ def free_flame(conds_dct, gas, meas_type, ydata_shape, factor=0.01):
 
 
 def st(conds_dct, gas, meas_type, xdata, ydata_shape, factor=0.01):
-
-    print('inside sim.sens.st')
 
     # Get the reference results (used as baseline for sens calcs)
     outcome_ydata_shape = ydata_shape[1:]  # strip first dim (# of rxns)

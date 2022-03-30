@@ -84,8 +84,6 @@ def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_src,
                                        cond_src, mech_opts_lst=mech_opts_lst)
     elif calc_type == 'sens':
         # Calculate the sensitivity coefficients
-        print('inside plot.main, exp_set:\n', exp_set)
-        print('plot field of exp_set:\n', exp_set['plot'])
         set_sens, set_xdata = simulator.main.single_set(
             exp_set, gases, mech_spc_dcts, 'sens', x_src, cond_src,
             mech_opts_lst=mech_opts_lst)

@@ -106,7 +106,6 @@ def single_mech(exp_set, gas, mech_spc_dct, calc_type, cond_src, xdata,
         mech_ydata = outcome.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'sens':
-        print('inside sim.main, conds_dct:\n', conds_dct)
         mech_ydata = sens.single_mech(
             conds_dct, gas, reac_type, meas_type, xdata, ydata_shape)
     elif calc_type == 'rop':

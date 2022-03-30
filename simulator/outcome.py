@@ -58,7 +58,8 @@ def process_const_t_p(raw_concs, raw_pressures, raw_temps, raw_times, conds_dct,
     if meas_type == 'conc':
         # Simply interpolate the raw concentrations to fit the uniform times
         cond_ydata = util.interp(raw_concs, raw_times, uniform_times)
-
+    elif meas_type == 'outlet':
+        cond_ydata = raw_concs[:, -1]
     else:
         raise NotImplementedError(
             f"meas_type '{meas_type}' not implemented for reac_type const_t_p")
