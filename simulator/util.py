@@ -123,9 +123,8 @@ def interp(ydata, xdata, desired_xdata):
     """ Takes a y data array with some inconsistent and/or unknown step size in
         the x variable and interpolates the y data to make the x data have a
         uniform step size. The input y data may be a Numpy array of dimension 1
-        or 2 (the second dimension must be the x dimension).
-
-        Usually, x will be time, but it does not have to be
+        or 2 (the second dimension must be the x dimension). xdata will usually
+        be time or position
 
         :param ydata: Numpy array containing y data to be interpolated; can be
             one array (ndim=1) or multiple arrays (ndim=2) to be interpolated
@@ -135,29 +134,35 @@ def interp(ydata, xdata, desired_xdata):
         :type xdata: Numpy.ndarray
         :param desired_xdata: desired grid of x values to which the y data will
             be interpolated; must have ndim=1 and be monotonically increasing
+        :type desired_xdata: Numpy.ndarray
         :return interp_ydata: the interpolated y data
         :rtype: Numpy.ndarray
     """
 
     ndims = np.ndim(ydata)
     assert ndims in (1, 2), (
-        f'correct_times requires arrays of dimension 1 or 2, not {ndims}')
-    assert min(np.diff(xdata)) > 0, 'xdata should be monotonically increasing'
+        f'ydata arrays should have number of dimensions 1 or 2, not {ndims}')
+    assert np.all(xdata[1:] > xdata[:-1]), (
+        'xdata should be monotonically increasing ')
 
     # Interpolate the data; method depends on the dimensionality
     if ndims == 1:
         interp_ydata = np.interp(desired_xdata, xdata, ydata)
     else:  # ndims = 2
-        narrs = np.shape(ydata)[0]  # assumes time is the second dim
-        ntimes = len(desired_xdata)
-        interp_ydata = np.ndarray((narrs, ntimes))
+        narrs = np.shape(ydata)[0]  # assumes x is the second dim
+        nxdata = len(desired_xdata)
+        interp_ydata = np.ndarray((narrs, nxdata))
         for arr_idx, arr in enumerate(ydata):
             interp_ydata[arr_idx, :] = np.interp(desired_xdata, xdata, arr)
 
-    # Get idxs of the high and low cutoffs beyond which the data doesn't extend
+    # Set interpolated y data that extend past the given y data to NaN
+    # Get idxs beyond which the data doesn't extend
     high_cutoff = np.argmin(abs(desired_xdata - xdata[-1]))  # first match
     low_cutoff = np.argmin(abs(desired_xdata - xdata[0]))  # first match
-    # Set interpolated y data that extend past the given y data to NaN
+    # Correct case when max desired_xdata is less than max xdata
+    if max(desired_xdata) < max(xdata):
+        high_cutoff = len(desired_xdata)
+    # Set values
     if ndims == 1:
         interp_ydata[high_cutoff:] = np.nan
         interp_ydata[:low_cutoff] = np.nan
@@ -338,50 +343,3 @@ def plot_derivs(targ, times):
     #     axs[0].plot(times[idx], targ[idx], 'bo')
 
     plt.show()
-
-# This function has been moved to runner.util
-# def _mech_opts_lst(exp_set, gases, kwarg_dct):
-#     """ Creates a list of mech_opts, one for each mechanism
-#
-#         Note: the reason only a single exp_set is required is that the intention
-#         of this option is to run comparisons against a single set (e.g.,
-#         trying several values of dP/dt for a single exp_set). There is no way to
-#         vary some parameter in different ways for different experimental sets.
-#         However, options can still be used for multiple sets (e.g., mech_names
-#         for simulating multiple sets)
-#
-#         :param kwarg_dct:
-#         :return:
-#     """
-#
-#     # Only fill in mech_opts_lst if any kwargs were given
-#     if kwarg_dct != {}:
-#         # Initialize
-#         nmechs = len(gases)
-#         mech_opts_lst = []
-#         for mech_idx in range(nmechs):
-#             mech_opts_lst.append({})  # doing this way to keep dicts unrelated
-#         # Get the possible inputs for this reac/meas combination
-#         meas_type = exp_set['overall']['meas_type']
-#         reac_type = exp_set['overall']['reac_type']
-#         poss_inps = get_poss_inps(reac_type, meas_type, 'exps', rm_bad=True)
-#         # Loop over each keyword argument
-#         ok_names = tuple(ALLOWED_SIM_OPTS.keys()) + poss_inps + ('mech_names',)
-#         for inp_idx, (name, vals) in enumerate(kwarg_dct.items()):
-#             assert name in ok_names, (
-#                 f"Input '{name}' not allowed for reactor '{reac_type}' and "
-#                 f"measurement '{meas_type}'. Options are {ok_names}")
-#             assert isinstance(vals, (list, tuple)), (
-#                 f"kwarg '{name}' should be list or tuple, not {type(vals)}")
-#             # Check the list length
-#             assert len(vals) == nmechs, (
-#                 f'Entries in kwarg_dct, {kwarg_dct}, should all be the length '
-#                 f'of the number of mechanisms, {nmechs}')
-#             # Add each value for the kwarg to each mech_opts dict
-#             for mech_idx, val in enumerate(vals):
-#                 mech_opts_lst[mech_idx][name] = val
-#     # If no kwargs, return None
-#     else:
-#         mech_opts_lst = None
-#
-#     return mech_opts_lst

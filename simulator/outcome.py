@@ -53,13 +53,16 @@ def const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape):
 
 
 def process_const_t_p(raw_concs, raw_pressures, raw_temps, raw_times, conds_dct,
-               cond_idx, meas_type, uniform_times):
+                      cond_idx, meas_type, uniform_times):
 
     if meas_type == 'conc':
         # Simply interpolate the raw concentrations to fit the uniform times
         cond_ydata = util.interp(raw_concs, raw_times, uniform_times)
     elif meas_type == 'outlet':
-        cond_ydata = raw_concs[:, -1]
+        end_time = conds_dct['end_time'][cond_idx]
+        # Interpolate to get the data at exactly the specified end_time
+        end_data = util.interp(raw_concs, raw_times, np.array([end_time]))
+        cond_ydata = end_data[:, -1]  # take the last time (only one, actually)
     else:
         raise NotImplementedError(
             f"meas_type '{meas_type}' not implemented for reac_type const_t_p")

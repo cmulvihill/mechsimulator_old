@@ -6,6 +6,7 @@ from mechsimulator.plotter import pathways
 from mechsimulator.plotter import util
 from mechsimulator import simulator
 from mechsimulator import parser
+from mechsimulator import writer
 
 # NOTE: should add this to the default sim_opts! Of course, is it really a sim_opt?
 NRXNS = 25  # used for plotting of sensitivity and ROP
@@ -103,6 +104,14 @@ def single_set(exp_set, gases, mech_spc_dcts, calc_type, x_src,
                                     set_xdata,
                                     sorted_set_rxns[:, :NRXNS],
                                     set_ref_results, exp_set, cond_src)
+        # Send the data to the writer
+
+        # targs = exp_set['spc'].keys()
+        targs = ['pressure',]
+        writer.new_sens.mult_mechs(sorted_set_sens, sorted_set_rxns, targs,
+                                   set_xdata, set_ref_results)
+
+
     elif calc_type == 'pathways':
         # Obtain the end states of each simulation; has shape (nmechs, nconds)
         set_end_tpx, set_xdata = simulator.main.single_set(

@@ -15,10 +15,10 @@ def single_mech(conds_dct, gas, reac_type, meas_type, xdata, ydata_shape,
                           factor=factor)
     elif reac_type == 'free_flame':
         sens_coeffs = free_flame(conds_dct, gas, meas_type, ydata_shape,
-                                 factor=0.01)
+                                 factor=factor)
     elif reac_type == 'const_t_p':
         sens_coeffs = const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape,
-                         factor=factor)
+                                factor=factor)
     else:
         raise NotImplementedError(
             f"reac_type '{reac_type}' is not implemented for sens!")
@@ -90,20 +90,32 @@ def st(conds_dct, gas, meas_type, xdata, ydata_shape, factor=0.01):
 
     # Get the sensitivity coefficients
     num_rxns = gas.n_reactions
-    sens_coeffs = np.ndarray(ydata_shape)
+    sens_coeffs = np.full(ydata_shape, np.nan)
+
+    # Hardcoding for Jaeyoung's C2H6 simulations
+    # hardcoded_rxn_idxs = [279, 284, 253, 285, 59, 60, 48, 204, 231, 214, 289, 276, 205,
+    #             158, 254, 2, 3, 326, 152, 271, 262, 250, 156, 210, 568, 1]
+
+    # Hardcoding for Curran C3H8 paper (using Luna's mech!)
+    # hardcoded_rxn_idxs = [9,596,118,656,472,365,417,10,364,169,369,164,393,14]
+
+    # Hardcoding for Curran C3H8 paper (using full NUIG1.1 mech!)
+    hardcoded_rxn_idxs = [642,37,38,177,776,125,739,693,748,641,687,679,688]
+
     for rxn_idx in range(num_rxns):
-        current_rxn = gas.reactions()[rxn_idx].equation
-        print(f'Current rxn: {current_rxn}, {rxn_idx + 1} out of {num_rxns}')
-        gas.set_multiplier(1.0)  # reset all multipliers to the original values
-        gas.set_multiplier(1 + factor, rxn_idx)
-        # Run simulation and calculate sens coefficients
-        rxn_result = outcome.st(
-            conds_dct, gas, meas_type, xdata, outcome_ydata_shape)
-        sens_coeff = (rxn_result - ref_result) / (ref_result * factor)
-        sens_coeffs[rxn_idx, :] = sens_coeff
-        # If on last rxn in this mech, fill up missing rxns with NaNs
-        if rxn_idx == num_rxns - 1:
-            sens_coeffs[rxn_idx + 1:, :] = np.nan
+        if rxn_idx in hardcoded_rxn_idxs:
+            current_rxn = gas.reactions()[rxn_idx].equation
+            print(f'Current rxn: {current_rxn}, {rxn_idx + 1} out of {num_rxns}')
+            gas.set_multiplier(1.0)  # reset all multipliers to the original values
+            gas.set_multiplier(1 + factor, rxn_idx)
+            # Run simulation and calculate sens coefficients
+            rxn_result = outcome.st(
+                conds_dct, gas, meas_type, xdata, outcome_ydata_shape)
+            sens_coeff = (rxn_result - ref_result) / (ref_result * factor)
+            sens_coeffs[rxn_idx, :] = sens_coeff
+            # # If on last rxn in this mech, fill up missing rxns with NaNs
+            # if rxn_idx == num_rxns - 1:
+            #     sens_coeffs[rxn_idx + 1:, :] = np.nan
 
     return sens_coeffs
 
