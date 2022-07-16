@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib import cm
 from mechsimulator.plotter import util
-from mechsimulator.plotter import outcome
 
 LINES = ['-', '--', '-.', ':']
 

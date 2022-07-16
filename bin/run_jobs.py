@@ -12,7 +12,8 @@ JOB_FILES = [
     # 'davidson_1990_sens.xlsx'
     # 'ro2_oh_idt_sens_dme.xlsx'
     # 'dme_sandia_515.xlsx',
-    'c3h8_curran_tests.xlsx'
+    # 'c3h8_curran_tests.xlsx'
+    'dme_sandia_513.xlsx',
 ]
 
 runner.main.run_jobs(JOB_FILES)

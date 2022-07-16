@@ -77,7 +77,7 @@ def get_cond_titles(exp_set, cond_src, xunit=None):
     # Load some data
     meas_type = exp_set['overall']['meas_type']
     plot_var = exp_set['plot']['variable']
-    units = ALLOWED_UNITS[plot_var][0][0]
+    units = ALLOWED_UNITS[plot_var[0]][0][0]
 
     # If on a time-resolved measurement
     if meas_type in ('abs', 'emis', 'conc', 'pressure'):
@@ -112,8 +112,8 @@ def get_cond_titles(exp_set, cond_src, xunit=None):
         elif meas_type == 'lfs':
             cond_titles = ['Laminar flame speeds']
         if xunit is None:  # if no xunit given...
-            xunit = ALLOWED_UNITS[plot_var][0][0]  # ...use the default unit
-        xlabel = ALLOWED_UNITS[plot_var][2] + f' ({xunit})'
+            xunit = ALLOWED_UNITS[plot_var[0]][0][0]  # ...use the default unit
+        xlabel = ALLOWED_UNITS[plot_var[0]][2] + f' ({xunit})'
         # If on ignition delay time and using temperature, override the label
         if meas_type == 'idt' and plot_var == 'temp':
             xlabel = '1000/Temperature (K^-1)'

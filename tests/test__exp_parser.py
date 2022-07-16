@@ -53,9 +53,7 @@ def test_convert_units():
 def test_st_conc():
     """ Tests the reading of an Excel file for a st_abs experiment
     """
-    filename = 'sample_st_conc_v1.xlsx'
-    filepath = os.path.join(DAT_PATH, filename)
-    _ = exp.load_exp_set(filepath)
+
     filename = 'Mulvihill_2021_N2O.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
@@ -67,14 +65,12 @@ def test_st_abs():
     filename = 'davidson_1990_no.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
-    # print(_['overall']['exp_ydata'])
     print(_['mix'])
 
 
 def test_st_idt():
     """ Tests the reading of an Excel file for a st_idt experiment
     """
-    filename = 'sample_st_idt_v1.xlsx'
     filename = 'Mathieu_2015_phi05_99_1atm.xlsx'
     filepath = os.path.join(DAT_PATH, filename)
     _ = exp.load_exp_set(filepath)
@@ -115,7 +111,6 @@ def test_rcm_idt():
     print(_['plot_format'])
 
 
-
 def test_mdot_jsr():
 
     filename = 'Tran_JSR_mdot.xlsx'
@@ -131,6 +126,14 @@ def test_lfs():
     print('sim_opts:\n', _['sim_opts'])
     print(type(_['sim_opts']['ratio']))
 
+
+def test_num_dens():
+    # filename = 'sample_num_dens.xlsx'
+    filename = 'couch_2022_dme_450k_num_dens.xlsx'
+    filepath = os.path.join(DAT_PATH, filename)
+    _ = exp.load_exp_set(filepath)
+
+
 if __name__ == '__main__':
     # test_convert_units()
     # test_st_conc()
@@ -138,7 +141,8 @@ if __name__ == '__main__':
     # test_st_idt()
     # test_pfr()
     # test_jsr()
-    test_const_t_p_abs()
-    test_rcm_idt()
+    # test_const_t_p_abs()
+    # test_rcm_idt()
     # test_mdot_jsr()
     # test_lfs()
+    test_num_dens()

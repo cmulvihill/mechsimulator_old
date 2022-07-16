@@ -8,6 +8,7 @@ from mechsimulator.simulator import pathways
 
 from mechsimulator.parser.exp_checker import get_poss_inps
 
+
 # will add later; model after plotter.main
 # EDIT: actually, will probably delete due to the addition of the runner pkg
 def mult_sets_filenames():
@@ -135,7 +136,7 @@ def get_conds_dct(exp_set, mech_spc_dct, cond_src, gas, mech_opts=None):
     plot_dct = exp_set['plot']
 
     if cond_src == 'plot':
-        var = exp_set['plot']['variable']
+        var = exp_set['plot']['variable'][0]
         conds = util.get_plot_conds(exp_set)
         nconds = len(conds)
     else:  # 'exps'
@@ -151,12 +152,13 @@ def get_conds_dct(exp_set, mech_spc_dct, cond_src, gas, mech_opts=None):
             if inp == var:  # if on plotting variable, use array
                 conds_dct[inp] = conds
             elif plot_dct.get(inp) is not None:  # if a single value exists
-                conds_dct[inp] = [plot_dct[inp]] * nconds
+                conds_dct[inp] = [plot_dct[inp][0]] * nconds
             # Otherwise, just leave as Nones
         else:  # 'exps'
             for cond_idx, exp_obj in enumerate(exp_objs):
                 if exp_obj['conds'].get(inp) is not None:
                     if inp == 'abs_coeff':  # special case; it's a dict
+                        # Does this need a [0] at the end with my new format?
                         conds_dct[inp][cond_idx] = exp_obj['conds'][inp]
                     else:
                         conds_dct[inp][cond_idx] = exp_obj['conds'][inp][0]
@@ -178,7 +180,8 @@ def get_conds_dct(exp_set, mech_spc_dct, cond_src, gas, mech_opts=None):
                 mix_lst = [mix] * nconds
             conds_dct['mix'] = mix_lst
         else:  # if mix is defined using mole fracs
-            mix = util.translate_spcs(raw_mix, rename_instr)
+            tuple_mix = util.translate_spcs(raw_mix, rename_instr)
+            mix = rm_uncertainty(tuple_mix)  # remove uncertainty bounds
             conds_dct['mix'] = [mix] * nconds
     else:  # 'exps'
         conds_dct['mix'] = [None] * nconds
@@ -269,7 +272,7 @@ def update_exp_set(exp_set, mech_opts=None):
 
     # If there are no mech_opts given or the only mech_opts are mechanism names,
     # then save a bit of time by not doing a deepcopy
-    if mech_opts is None or tuple(mech_opts.keys()) == ('mech_names'):
+    if mech_opts is None or tuple(mech_opts.keys()) == ('mech_names',):
         updated_exp_set = exp_set
     # Otherwise, make a copy of the exp_set and use mech_opts to update certain
     # portions of the exp_set
@@ -330,11 +333,9 @@ def check_spcs(exp_set, mech_spc_dct, gas):
         those that are in initial mixtures, IDT targets, or active species in
         emission/absorption experiments
     """
-
     def check_single_spc(spc, rename_instr, sheet_type):
         """ Checks a single species to see if it's properly defined
         """
-
         new_name = rename_instr[spc]
         assert new_name is not None, (
             f"'{spc}' is in '{sheet_type}' mix but not in the mech_spc_dct. "

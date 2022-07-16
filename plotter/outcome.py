@@ -50,6 +50,7 @@ def single_set(set_ydata, set_xdata, exp_set, conds_src, mech_opts_lst=None):
     set_frmt = exp_set['plot_format']
     nmechs = len(set_ydata)
     if nmechs > 6:
+        # Only 6 default colors defined at top of file...should fix this
         print('More than 6 mechanisms! This will cause plotting problems')
 
     # Build the empty figures and axes
@@ -289,7 +290,7 @@ def organize_set(mech_ydata, mech_frmt, exp_set):
     ngrps, nplts = _ngrps_nplts(mech_ydata, exp_set)
     nrows, ncols = mech_frmt['rows_cols']
     plts_per_pg = nrows * ncols  # maximum number of plots per page
-    pgs_per_grp = int(nplts / plts_per_pg) + 1  # number of pages per group
+    pgs_per_grp = _pgs_per_grp(nplts, plts_per_pg)
 
     return ngrps, nplts, plts_per_pg, pgs_per_grp
 
@@ -327,7 +328,7 @@ def build_figs_axes(exp_set, set_frmt, conds_src, mech_opts_lst, nmechs):
         plts_per_pg = nrows * ncols
         ngrps = len(grp_titles)
         plts_per_grp = len(plt_titles)
-        pgs_per_grp = int(plts_per_grp / plts_per_pg) + 1  # int rounds down
+        pgs_per_grp = _pgs_per_grp(plts_per_grp, plts_per_pg)
 
         # Loop over each group and build the figures and axes
         figs_axes = []
@@ -497,3 +498,15 @@ def _mech_frmt(exp_set, set_frmt, conds_src, mech_idx=None):
             mech_frmt['order'] = -1  # negative to go behind all
 
     return mech_frmt
+
+
+def _pgs_per_grp(plts_per_grp, plts_per_pg):
+    """ Calculates the number of pages per group
+    """
+
+    if plts_per_grp % plts_per_pg == 0:  # if perfectly divisible, just divide
+        pgs_per_grp = int(plts_per_grp / plts_per_pg)
+    else:  # otherwise, add one (since int rounds down)
+        pgs_per_grp = int(plts_per_grp / plts_per_pg) + 1
+
+    return pgs_per_grp

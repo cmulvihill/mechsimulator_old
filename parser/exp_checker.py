@@ -15,6 +15,15 @@ ALLOWED_INFO_GROUPS = {
     'ignore_row':   (),
 }
 
+# Allowed groups (keys) and their required params (values) in the 'exp' sheets
+ALLOWED_EXP_GROUPS = {
+    'overall':      ('exp_id',),
+    'conds':        (),
+    'mix':          (),
+    'result':       (),
+    'ignore_row': (),
+}
+
 # Allowed reactor types (keys) and:
 # (1) required inputs in the 'conds' field of the exp_sheets and the 'plot'
 #       field of the 'info' sheet
@@ -148,11 +157,35 @@ POINT_MEAS_TYPES = ('outlet', 'idt', 'lfs')
 
 
 def chk_exp_set(exp_set):
-    """ Runs checks on an exp_set to make sure certain conditions are met. This
-        function operates mostly on the 'info' sheet
+    """ Runs checks on everything in an exp_set
 
         :param: exp_set: description of a set of experiments
         :type exp_set: dct
+    """
+
+
+    # print('before running num_dens, exp_set:')
+    # for key, val in exp_set.items():
+    #     print(f'{key}: {val}')
+
+    # Fix any number densities (i.e., convert to mole fractions)
+    fix_num_dens(exp_set)
+
+    # print('after running num_dens, exp_set:')
+    # for key, val in exp_set.items():
+    #     print(f'{key}: {val}')
+
+    # Check the 'info' sheet
+    exp_set = chk_info_sheet(exp_set)
+    # Check the exp_objs (must check exp_objs AFTER exp_set)
+    for idx, exp_obj in enumerate(exp_set['exp_objs']):
+        exp_set['exp_objs'][idx] = chk_exp_obj(exp_obj, exp_set)
+
+    return exp_set
+
+
+def chk_info_sheet(exp_set):
+    """ Runs checks on an exp_set, mostly on parameters from the 'info' sheet
     """
 
     set_id = exp_set['overall']['set_id']  # for printing
@@ -194,11 +227,7 @@ def chk_exp_set(exp_set):
         assert reqd_meas_inp in plot_info.keys(), (
             f"{id_str}required 'plot' input '{reqd_meas_inp}' is missing. "
             f"This is required for meas_type '{meas_type}'")
-    # If the meas_type requires the full 'plot' inputs (as indicated by the
-    # 'inc' field), check for the proper inputs according to the reactor type
-    # if 'inc' in reqd_meas_inps:
-
-    # Trying something new: removing the 'inc' requirement
+    # Check for the proper inputs according to the reactor type
     for reqd_reac_inp in reqd_reac_inps:
         # If reqd_reac_inp is a string, i.e., a single value
         if isinstance(reqd_reac_inp, str):
@@ -220,6 +249,11 @@ def chk_exp_set(exp_set):
                 f"{id_str}one of the optional inputs,"
                 f" {reqd_reac_inp}, should be given")
 
+    # Check that the increment is not zero (would cause a divide by 0 error
+    # later when getting the plot_conds array)
+    assert plot_info['inc'] != 0, (
+        f"{id_str}the 'inc' cannot be 0")
+
     # Check that only allowed plot instructions are given
     poss_inps = get_poss_inps(reac_type, meas_type, 'plot', rm_bad=False)
     for inp in plot_info.keys():
@@ -239,8 +273,8 @@ def chk_exp_set(exp_set):
 
     # Check some things regarding ignition delay time measurements
     if meas_type == 'idt':
-        idt_targs = exp_set['plot']['idt_targ']
-        idt_methods = exp_set['plot']['idt_method']
+        idt_targs = exp_set['plot']['idt_targ'][0]
+        idt_methods = exp_set['plot']['idt_method'][0]
         ntargs = len(idt_targs)
         nmethods = len(idt_methods)
         # Check that the number of targets and methods are the same
@@ -264,7 +298,7 @@ def chk_exp_set(exp_set):
     timestep = exp_set['plot'].get('timestep')
     end_time = exp_set['plot'].get('end_time')
     if timestep is not None and end_time is not None:
-        assert np.isclose(end_time % timestep, 0, atol=1e-8), (
+        assert np.isclose(end_time[0] % timestep[0], 0, atol=1e-8), (
             f'{id_str}the end_time, {end_time}, is not a multiple '
             f'of the timestep, {timestep}')
 
@@ -276,50 +310,7 @@ def chk_exp_set(exp_set):
                 f"{id_str}active species {active_spc} is not defined")
 
     # Check that the mixture is acceptably defined
-    mix = exp_set['mix']
-    all_spcs = tuple(exp_set['spc'].keys())
-    correct_spc, correct_phi = _mix_type(mix, all_spcs, plot_var)
-    # If it's formatted with spc mole fracs
-    if correct_spc:
-        total_mole_frac = 0
-        bal_present = False
-        for spc, mole_frac in mix.items():
-            if mole_frac == 'bal':
-                bal_present = True
-                bal_spc = spc
-            else:
-                total_mole_frac += mole_frac
-        assert total_mole_frac <= 1.0001, (
-            f"{id_str}total mole frac. can't exceed 1")
-        # If the 'bal' keyword was used, fix the species concentration
-        if bal_present:
-            new_mix = copy.deepcopy(mix)
-            new_mix[bal_spc] = 1 - total_mole_frac
-            exp_set['mix'] = new_mix
-            total_mole_frac = 1
-        assert np.isclose(total_mole_frac, 1, atol=1e-4), (
-            f"{id_str}total mole fraction is {total_mole_frac}. Should be 1")
-    # Otherwise, if it's formatted with phi
-    if correct_phi:
-        for fuel_spc in mix['fuel']:  # check that all fuel spcs are def'd
-            assert fuel_spc in all_spcs, (
-                f"{id_str}the spc {fuel_spc} is not defined")
-        for oxid_spc in mix['oxid']:  # check that all oxidizer spcs are def'd
-            assert oxid_spc in all_spcs, (
-                f"{id_str}the spc {oxid_spc} is not defined")
-        # Check that the ratios are properly defined (if at all)
-        if 'fuel_ratios' in mix:
-            assert len(mix['fuel_ratios']) == len(mix['fuel']), (
-                f"{id_str}number of entries in fuel and fuel_ratios must match")
-        if 'oxid_ratios' in mix:
-            assert len(mix['oxid_ratios']) == len(mix['oxid']), (
-                f"{id_str}number of entries in oxid and oxid_ratios must match")
-        if len(mix['fuel']) > 1:
-            assert 'fuel_ratios' in mix, (
-                f"{id_str}for more than one fuel, fuel_ratios is required")
-        if len(mix['oxid']) > 1:
-            assert 'oxid_ratios' in mix, (
-                f"{id_str}for more than one oxidizer, oxid_ratios is required")
+    exp_set = chk_mix(exp_set, exp_set, id_str, sheet_type='info')
 
     # Check the sim opts and fill in missing values with defaults
     def_opts = ALLOWED_SIM_OPTS.keys()
@@ -477,9 +468,109 @@ def chk_exp_obj(exp_obj, exp_set):
             f"but {nset_idts} indicated in the 'plot' field")
 
     # Check that the mixture is acceptably defined
-    mix = exp_obj['mix']
+    exp_obj = chk_mix(exp_obj, exp_set, id_str, sheet_type='exp')
+
+    return exp_obj
+
+
+def fix_num_dens(exp_set):
+    """ Converts any number densities to mole fractions. Will fail if more than
+        one thermodynamic state is specified in the 'info' sheet
+    """
+    def _fix_mix(mix, tot_num_dens):
+        """ Converts a singular mix to mole fractions
+        """
+
+        for spc, entry in mix.items():
+            units = entry[4]
+            if units == 'molec/cm3':
+                assert tot_num_dens is not None, (
+                    'multiple thermo states in the info sheet w/number density!'
+                    ' use mole fractions or only one thermo state')
+                fixed_val = entry[0] / tot_num_dens
+                mix[spc] = (fixed_val,) + entry[1:]
+
+    # First, fix the 'info' sheet (only the mix to look at)
+    tot_num_dens = _tot_num_dens(exp_set, sheet_type='info')
+    _fix_mix(exp_set['mix'], tot_num_dens)
+
+    # Second, fix the exp_objs (need to look at mix and result)
     all_spcs = tuple(exp_set['spc'].keys())
-    correct_spc, correct_phi = _mix_type(mix, all_spcs, None)  # plot_var = None
+    meas_type = exp_set['overall']['meas_type']
+    for exp_obj in exp_set['exp_objs']:
+        tot_num_dens = _tot_num_dens(exp_obj, sheet_type='exp')
+        # Fix the mix first
+        _fix_mix(exp_obj['mix'], tot_num_dens)
+        # Next, fix any results
+        if meas_type in ('conc', 'burner_conc'):
+            for name, RowEntry in exp_obj['result'].items():
+                if name in all_spcs and RowEntry[4] == 'molec/cm3':
+                    new_val = RowEntry[0] / tot_num_dens
+                    exp_obj['result'][name] = (new_val,) + RowEntry[1:]
+
+
+
+def _tot_num_dens(exp_set_or_obj, sheet_type='exp'):
+    """ Calculate the total number density of an exp_set ('info' sheet) or an
+        exp_obj. For exp_set, only works if there is only one thermodynamic
+        state specified
+    """
+    def _calc(temperature, pressure):
+        """ Returns the total number density at a temperature and pressure
+
+            :param temperature: temperature in Kelvin
+            :param pressure: pressure in atm
+            :return tot_num_dens: total number density in molecules/cm3
+        """
+
+        univ_gas_const = 82.05737  # cm3 atm K-1 mol-1
+        avogadro = 6.022e23  # molecules mol-1
+        result = avogadro * pressure / (temperature * univ_gas_const)
+
+        return result
+
+    if sheet_type == 'info':
+        # If the user specified more than one thermodynamic state using the
+        # plot_var field, return a tot_num_dens of None
+        plot_dct = exp_set_or_obj['plot']
+        plot_var = plot_dct['variable'][0]
+        start = plot_dct['start'][0]
+        end = plot_dct['end'][0]
+        if plot_var in ('temp', 'pressure') and not np.isclose(start, end):
+            tot_num_dens = None
+        # Otherwise, calculate tot_num_dens
+        else:
+            temp = start if plot_var == 'temp' else plot_dct['temp'][0]
+            pres = start if plot_var == 'pressure' else plot_dct['pressure'][0]
+            tot_num_dens = _calc(temp, pres)
+    else:  # exp
+        temp = exp_set_or_obj['conds']['temp'][0]
+        pres = exp_set_or_obj['conds']['pressure'][0]
+        tot_num_dens = _calc(temp, pres)
+
+    return tot_num_dens
+
+
+def chk_mix(exp_set_or_obj, exp_set, id_str, sheet_type='exp'):
+    """ Checks that a mixture is acceptably defined
+
+        :param exp_set_or_obj: the object to be checked; if checking the 'info'
+            sheet parameters, this object will be identical to the exp_set input
+        :param exp_set: used to get species information
+        :param id_str: printout prefix for error messages
+        :param sheet_type: either 'info' or 'exp'
+        :return exp_set_or_obj: the mixture could have been modified, so return
+    """
+
+    # Get some basic mixture information
+    mix = exp_set_or_obj['mix']
+    all_spcs = tuple(exp_set['spc'].keys())
+    if sheet_type == 'info':
+        plot_var = exp_set['plot']['variable']
+    else:
+        plot_var = None
+    correct_spc, correct_phi = _mix_type(mix, all_spcs, plot_var)
+
     # If it's formatted with spc mole fracs, check a few things
     if correct_spc:
         total_mole_frac = 0
@@ -497,10 +588,12 @@ def chk_exp_obj(exp_obj, exp_set):
         if bal_present:
             new_mix = copy.deepcopy(mix)
             new_mix[bal_spc] = ((1 - total_mole_frac),) + tuple(bal_uncertainty)
-            exp_obj['mix'] = new_mix
+            exp_set_or_obj['mix'] = new_mix
             total_mole_frac = 1
         assert np.isclose(total_mole_frac, 1, atol=1e-4), (
             f"{id_str} total mole fraction is {total_mole_frac}. Should be 1")
+
+    # If it's formatted with equivalence ratios, check some things
     if correct_phi:
         for fuel_spc in mix['fuel'][0]:  # check that all fuel spcs are def'd
             assert fuel_spc in all_spcs, (
@@ -522,10 +615,10 @@ def chk_exp_obj(exp_obj, exp_set):
             assert 'oxid_ratios' in mix, (
                 f"{id_str}for more than one oxidizer, oxid_ratios is required")
 
-    return exp_obj
+    return exp_set_or_obj
 
 
-# Miscellaneous functions
+# ------------------------- Miscellaneous functions ----------------------------
 def get_poss_inps(reac_type, meas_type, plot_or_exps, rm_bad=True):
     """ Gets all possible (i.e., allowed) inputs for either the 'plot' field of
         the 'info' sheet or the 'conds' field of the exp sheets

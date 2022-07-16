@@ -1,8 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mechsimulator.parser.exp import ALLOWED_UNITS
-from mechsimulator.parser.exp_checker import ALLOWED_SIM_OPTS
-from mechsimulator.parser.exp_checker import get_poss_inps
 
 MEAS_TYPE_DIMS = {
     'ion':          4,
@@ -96,9 +94,9 @@ def get_plot_conds(exp_set):
     """
 
     plot_dct = exp_set['plot']
-    start = plot_dct['start']
-    end = plot_dct['end']
-    inc = plot_dct['inc']
+    start = plot_dct['start'][0]
+    end = plot_dct['end'][0]
+    inc = plot_dct['inc'][0]
     num = int((end - start) / inc) + 1
     plot_conds = np.linspace(start, end, num)
 
@@ -107,12 +105,11 @@ def get_plot_conds(exp_set):
 
 def get_uniform_times(exp_set):
     """ Gets a uniform times array for an exp_set based on the plot instructions
-
     """
 
-    max_time = exp_set['plot']['end_time']
+    max_time = exp_set['plot']['end_time'][0]
     min_time = 0
-    timestep = exp_set['plot']['timestep']
+    timestep = exp_set['plot']['timestep'][0]
     ntimes = int((max_time - min_time) / timestep) + 1
     times = np.linspace(min_time, max_time, ntimes)
 
@@ -212,7 +209,7 @@ def get_mech_info(exp_set, calc_type, x_src, cond_src, gases):
 
     # Get the set variable and check that options were used correctly
     plot_var = exp_set['plot']['variable']
-    units = ALLOWED_UNITS[plot_var][0][0]
+    units = ALLOWED_UNITS[plot_var[0]][0][0]
     if x_src == 'exps' and cond_src == 'plot':
         raise NotImplementedError(
             "x_src='exps' and cond_src='plot' is not allowed")
