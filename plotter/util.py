@@ -49,8 +49,8 @@ def get_targ_titles(exp_set, yunit=None):
         ylabel = f'Pressure ({yunit})'
         yquant = 'pressure'
     elif meas_type == 'idt':
-        idt_targs = exp_set['plot']['idt_targ']
-        idt_methods = exp_set['plot']['idt_method']
+        idt_targs = exp_set['plot']['idt_targ'][0]
+        idt_methods = exp_set['plot']['idt_method'][0]
         targ_titles = []
         for idt_method in idt_methods:
             for idt_targ in idt_targs:

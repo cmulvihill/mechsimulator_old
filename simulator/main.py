@@ -220,10 +220,19 @@ def get_conds_dct(exp_set, mech_spc_dct, cond_src, gas, mech_opts=None):
                     conds_dct['p_of_t'][cond_idx] = p_of_t
                 # Otherwise, leave as None
 
+    # Add V(t) information
+    if reac_type == 'rcm':
+        # For now, being dumb and only taking from the 'info' sheet. Need to add
+        # ability to take from experimental sheets
+        times = plot_dct['time'][0]
+        volume = plot_dct['v_of_t'][0]
+        v_of_t = np.vstack((times, volume))
+        conds_dct['v_of_t'] = [v_of_t] * nconds
+
     # Add ignition delay time information
     if meas_type == 'idt':
-        conds_dct['idt_method'] = plot_dct['idt_method']
-        raw_idt_targs = plot_dct['idt_targ']
+        conds_dct['idt_method'] = plot_dct['idt_method'][0]
+        raw_idt_targs = plot_dct['idt_targ'][0]
         idt_targs = []
         for raw_idt_targ in raw_idt_targs:
             if raw_idt_targ == 'pressure':
@@ -374,7 +383,7 @@ def check_spcs(exp_set, mech_spc_dct, gas):
 
     # Check that IDT targets are defined
     if meas_type == 'idt':
-        idt_targs = exp_set['plot']['idt_targ']
+        idt_targs = exp_set['plot']['idt_targ'][0]
         for idt_targ in idt_targs:
             if idt_targ != 'pressure':  # if on a species
                 new_name = rename_instr[idt_targ]

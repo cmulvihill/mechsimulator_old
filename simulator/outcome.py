@@ -21,11 +21,63 @@ def single_mech(conds_dct, gas, reac_type, meas_type, xdata, ydata_shape,
                                    prev_solns=prev_solns)
     elif reac_type == 'const_t_p':
         mech_ydata = const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape)
-
+    elif reac_type == 'rcm':
+        mech_ydata = rcm(conds_dct, gas, meas_type, xdata, ydata_shape)
     else:
         raise NotImplementedError(f"reac_type '{reac_type}' not working")
 
     return mech_ydata
+
+
+def rcm(conds_dct, gas, meas_type, xdata, ydata_shape):
+
+    # Get arrays of reactor inputs
+    temps = conds_dct['temp']
+    pressures = conds_dct['pressure']
+    mixes = conds_dct['mix']
+    end_times = conds_dct['end_time']
+    targ_spcs = conds_dct['targ_spcs']
+    v_of_ts = conds_dct['v_of_t']
+
+    # Loop over all conditions
+    dtype = 'object' if meas_type == 'pathways' else 'float'
+    mech_ydata = np.ndarray(ydata_shape, dtype=dtype)
+    for cond_idx in range(ydata_shape[0]):  # [0] gives # of conditions
+        raw_concs, raw_pressures, raw_times, _, _ = reactors.rcm(
+            temps[cond_idx], pressures[cond_idx], mixes[cond_idx], gas,
+            targ_spcs, end_times[cond_idx], v_of_ts[cond_idx])
+        # Process the raw results
+        mech_ydata[cond_idx] = process_rcm(
+            raw_concs, raw_pressures, raw_times, conds_dct, cond_idx,
+            meas_type, xdata)
+
+    return mech_ydata
+
+
+def process_rcm(raw_concs, raw_pressures, raw_times, conds_dct,
+                cond_idx, meas_type, uniform_times):
+
+    if meas_type == 'idt':
+        idt_targs = conds_dct['idt_targ']
+        idt_methods = conds_dct['idt_method']  # same length as idt_targs
+        targ_spcs = conds_dct['targ_spcs']
+        # Loop over each target/method pair and get the IDT data
+        cond_ydata = np.ndarray((len(idt_targs),))
+        for targ_idx, idt_targ in enumerate(idt_targs):
+            idt_method = idt_methods[targ_idx]
+            if idt_targ == 'pressure':
+                targ_profile = raw_pressures
+            else:  # if a species
+                spc_idx = targ_spcs.index(idt_targ)  # idx of spc in targets
+                targ_profile = raw_concs[spc_idx]  # conc. of target spc
+            idt, warnings = st_idt(targ_profile, raw_times, method=idt_method)
+            if warnings:
+                print(f'Warning: {warnings} was returned for ST IDT simulation')
+            cond_ydata[targ_idx] = idt
+    else:
+        raise NotImplementedError(f"'{meas_type}' not working for RCM")
+
+    return cond_ydata
 
 
 def const_t_p(conds_dct, gas, meas_type, xdata, ydata_shape):

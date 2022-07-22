@@ -197,8 +197,8 @@ def get_mech_info(exp_set, calc_type, x_src, cond_src, gases):
 
     def get_idt_targ_titles(exp_set):
 
-        fake_targs = exp_set['plot']['idt_targ']
-        methods = exp_set['plot']['idt_method']
+        fake_targs = exp_set['plot']['idt_targ'][0]
+        methods = exp_set['plot']['idt_method'][0]
         targs = []
         titles = []
         for idx, fake_targ in enumerate(fake_targs):

@@ -6,8 +6,8 @@ READ_PATH = '../lib/mechs/ckin'  # where to look for Chemkin mechanism
 WRITE_PATH = '../lib/mechs/'  # where to write Cantera mechanism
 
 # Filename(s) (might not all be used)
-MECH_FILENAME = 'butene_pyrolysis.ckin'
-THERMO_FILENAME = 'butene_pyrolysis.therm'
+MECH_FILENAME = 'nuig1.2_reduced.ckin'
+THERMO_FILENAME = 'nuig1.2.therm'
 TRAN_FILENAME = 'C3MechV3.3TRAN.dat'
 
 # Get the output filename

@@ -63,6 +63,7 @@ ALTERNATE_NAMES = {
     'idt':          'time',
     'timestep':     'time',
     'lfs':          'velocity',
+    'v_of_t':       'vol',
 }
 
 # Params in the 'plot' field of the 'info' sheet that should be in list form

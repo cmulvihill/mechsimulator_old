@@ -13,7 +13,9 @@ JOB_FILES = [
     # 'ro2_oh_idt_sens_dme.xlsx'
     # 'dme_sandia_515.xlsx',
     # 'c3h8_curran_tests.xlsx'
-    'dme_sandia_513.xlsx',
+    # 'dme_sandia_513.xlsx',
+    'c3h8_rcm_dames_2016.xlsx'
+    # 'h2o2_test_rcm.xlsx'
 ]
 
 runner.main.run_jobs(JOB_FILES)

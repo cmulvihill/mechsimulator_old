@@ -44,8 +44,8 @@ ALLOWED_REAC_TYPES = {
     'jsr':          (('temp', 'pressure', ('res_time', 'mdot'), 'vol'),
                      (),
                      ('outlet',)),
-    'rcm':          (('temp', 'pressure', 'end_time', 'time', 'vol'),
-                     (),
+    'rcm':          (('temp', 'pressure', 'end_time'),
+                     ('time', 'v_of_t'),
                      ('idt', 'pressure')),
     'const_t_p':    (('temp', 'pressure', 'end_time'),
                      (),
@@ -462,7 +462,7 @@ def chk_exp_obj(exp_obj, exp_set):
         # Check that the number of IDTs indicated in the 'plot' field matches
         # that given in the results of the exp_sheets
         nexp_idts = get_nidts(exp_set)
-        nset_idts = len(exp_set['plot']['idt_targ'])
+        nset_idts = len(exp_set['plot']['idt_targ'][0])
         assert nexp_idts == nset_idts, (
             f"{id_str}there are {nexp_idts} IDTs indicated in the exp sheets, "
             f"but {nset_idts} indicated in the 'plot' field")
