@@ -1,0 +1,22 @@
+name: mechsimulator-env
+
+channels:
+    - cantera
+    - conda-forge
+    - rdkit
+
+dependencies:
+    - cantera::cantera=2.5.1
+    - conda-forge::python=3.7
+    - conda-forge::numpy
+    - conda-forge::scipy
+    - conda-forge::matplotlib
+    - conda-forge::pandas
+    - conda-forge::pytest
+    - conda-forge::pytest-cov
+    - conda-forge::pylint
+    - conda-forge::pypdf2
+    #- rdkit::rdkit=2020.09.1.0
+    - rdkit::rdkit
+    - pip:
+      - openpyxl

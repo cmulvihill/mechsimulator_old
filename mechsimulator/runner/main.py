@@ -8,11 +8,6 @@ MECH_PATH = '../lib/mechs'
 SPC_PATH = '../lib/mechs'
 OUT_PATH = '../lib/results'
 
-#JOB_PATH = '/lib/jobs'
-#EXP_PATH = '/lib/exps'
-#MECH_PATH = '/lib/mechs'
-#SPC_PATH = '/lib/mechs'
-#OUT_PATH = '/lib/results'
 
 def run_jobs(job_files, job_path=None):
     """ Runs multiple jobs
